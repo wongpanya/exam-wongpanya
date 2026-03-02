@@ -1,0 +1,348 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../../config/api';
+import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy } from 'lucide-react';
+import RichTextEditor from '../../components/RichTextEditor';
+
+const CreateExam = () => {
+    const navigate = useNavigate();
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+
+    const [title, setTitle] = useState('');
+    const [durationMin, setDurationMin] = useState(30);
+    const [questions, setQuestions] = useState([
+        {
+            type: 'radio',
+            prompt: '',
+            choices: [
+                { value: 'a', label: '' },
+                { value: 'b', label: '' },
+            ],
+            correctAnswer: '',
+            points: 1,
+        },
+    ]);
+
+    const addQuestion = () => {
+        setQuestions([
+            ...questions,
+            {
+                type: 'radio',
+                prompt: '',
+                choices: [
+                    { value: 'a', label: '' },
+                    { value: 'b', label: '' },
+                ],
+                correctAnswer: '',
+                points: 1,
+            },
+        ]);
+    };
+
+    const removeQuestion = (qIndex) => {
+        if (questions.length <= 1) return;
+        setQuestions(questions.filter((_, i) => i !== qIndex));
+    };
+
+    const duplicateQuestion = (qIndex) => {
+        const original = questions[qIndex];
+        const copy = {
+            ...original,
+            choices: original.choices.map(c => ({ ...c })),
+        };
+        const updated = [...questions];
+        updated.splice(qIndex + 1, 0, copy);
+        setQuestions(updated);
+    };
+
+    const updateQuestion = (qIndex, field, value) => {
+        const updated = [...questions];
+        updated[qIndex] = { ...updated[qIndex], [field]: value };
+        setQuestions(updated);
+    };
+
+    const selectCorrectAnswer = (qIndex, value) => {
+        const updated = [...questions];
+        updated[qIndex] = { ...updated[qIndex], correctAnswer: value };
+        setQuestions(updated);
+    };
+
+    const addChoice = (qIndex) => {
+        const updated = [...questions];
+        const nextValue = String.fromCharCode(97 + updated[qIndex].choices.length);
+        updated[qIndex].choices = [
+            ...updated[qIndex].choices,
+            { value: nextValue, label: '' },
+        ];
+        setQuestions(updated);
+    };
+
+    const removeChoice = (qIndex, cIndex) => {
+        const updated = [...questions];
+        if (updated[qIndex].choices.length <= 2) return;
+        updated[qIndex].choices = updated[qIndex].choices.filter((_, i) => i !== cIndex);
+        updated[qIndex].choices = updated[qIndex].choices.map((c, i) => ({
+            ...c,
+            value: String.fromCharCode(97 + i),
+        }));
+        const validValues = updated[qIndex].choices.map(c => c.value);
+        if (!validValues.includes(updated[qIndex].correctAnswer)) {
+            updated[qIndex].correctAnswer = '';
+        }
+        setQuestions(updated);
+    };
+
+    const updateChoiceLabel = (qIndex, cIndex, label) => {
+        const updated = [...questions];
+        updated[qIndex].choices = updated[qIndex].choices.map((c, i) =>
+            i === cIndex ? { ...c, label } : c
+        );
+        setQuestions(updated);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setSuccess('');
+
+        if (!title.trim()) {
+            setError('กรุณาใส่ชื่อข้อสอบ');
+            return;
+        }
+
+        for (let i = 0; i < questions.length; i++) {
+            const q = questions[i];
+            if (!q.prompt.trim()) {
+                setError(`กรุณาใส่คำถามข้อที่ ${i + 1}`);
+                return;
+            }
+            for (let j = 0; j < q.choices.length; j++) {
+                if (!q.choices[j].label.trim()) {
+                    setError(`กรุณาใส่ตัวเลือกข้อ ${i + 1} ตัวเลือกที่ ${j + 1}`);
+                    return;
+                }
+            }
+            if (!q.correctAnswer) {
+                setError(`กรุณาเลือกคำตอบที่ถูกต้องของข้อ ${i + 1}`);
+                return;
+            }
+        }
+
+        setLoading(true);
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+
+            await api.post('/exams', { title, durationMin, questions }, config);
+            setSuccess('สร้างข้อสอบสำเร็จ!');
+            setTimeout(() => navigate('/teacher/exams'), 1500);
+        } catch (err) {
+            setError(err.response?.data?.message || 'เกิดข้อผิดพลาดในการสร้างข้อสอบ');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">สร้างข้อสอบใหม่</h1>
+                <p className="text-gray-500 mt-1">กรอกรายละเอียดข้อสอบและเพิ่มคำถาม</p>
+            </div>
+
+            {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="text-red-600 text-sm">{error}</p>
+                </div>
+            )}
+
+            {success && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <p className="text-green-600 text-sm">{success}</p>
+                </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Exam Info */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 space-y-4">
+                    <h2 className="text-lg font-semibold text-gray-900">ข้อมูลข้อสอบ</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อข้อสอบ</label>
+                            <input
+                                type="text"
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="เช่น Midterm Quiz - Network Basics"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">เวลาสอบ (นาที)</label>
+                            <input
+                                type="number"
+                                min="1"
+                                value={durationMin}
+                                onChange={(e) => setDurationMin(Number(e.target.value))}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Questions */}
+                <div className="space-y-4">
+                    {questions.map((q, qIndex) => (
+                        <div key={qIndex} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-2 text-gray-400">
+                                    <GripVertical size={18} />
+                                    <h3 className="text-lg font-semibold text-gray-900">
+                                        ข้อที่ {qIndex + 1}
+                                    </h3>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1">
+                                        <label className="text-xs text-gray-500">คะแนน:</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={q.points}
+                                            onChange={(e) => updateQuestion(qIndex, 'points', Number(e.target.value))}
+                                            className="w-16 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => duplicateQuestion(qIndex)}
+                                        className="p-1.5 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                                        title="คัดลอกข้อนี้"
+                                    >
+                                        <Copy size={18} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeQuestion(qIndex)}
+                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                        title="ลบคำถาม"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Prompt */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">คำถาม</label>
+                                <RichTextEditor
+                                    content={q.prompt}
+                                    onChange={(html) => updateQuestion(qIndex, 'prompt', html)}
+                                    placeholder="พิมพ์คำถามที่นี่..."
+                                />
+                            </div>
+
+                            {/* Choices - clickable cards */}
+                            <div className="space-y-2">
+                                <label className="block text-sm font-medium text-gray-700">
+                                    ตัวเลือก <span className="text-gray-400 font-normal">(คลิกเพื่อเลือกคำตอบที่ถูกต้อง)</span>
+                                </label>
+                                {q.choices.map((choice, cIndex) => (
+                                    <div
+                                        key={cIndex}
+                                        className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${q.correctAnswer === choice.value
+                                                ? 'border-green-500 bg-green-50'
+                                                : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                                            }`}
+                                        onClick={() => selectCorrectAnswer(qIndex, choice.value)}
+                                    >
+                                        {/* Correct answer indicator */}
+                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${q.correctAnswer === choice.value
+                                                ? 'bg-green-500 text-white'
+                                                : 'bg-gray-200 text-gray-500'
+                                            }`}>
+                                            {q.correctAnswer === choice.value ? (
+                                                <CheckCircle size={16} />
+                                            ) : (
+                                                <span className="text-xs font-bold">{choice.value.toUpperCase()}</span>
+                                            )}
+                                        </div>
+
+                                        <input
+                                            type="text"
+                                            value={choice.label}
+                                            onChange={(e) => updateChoiceLabel(qIndex, cIndex, e.target.value)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            placeholder={`ตัวเลือก ${choice.value.toUpperCase()}`}
+                                            className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm bg-white"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                removeChoice(qIndex, cIndex);
+                                            }}
+                                            className="p-1 text-gray-400 hover:text-red-500 transition flex-shrink-0"
+                                            title="ลบตัวเลือก"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => addChoice(qIndex)}
+                                    className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1 mt-1"
+                                >
+                                    <Plus size={14} /> เพิ่มตัวเลือก
+                                </button>
+                            </div>
+
+                            {q.correctAnswer && (
+                                <p className="text-xs text-green-600 font-medium">
+                                    ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.toUpperCase()}
+                                </p>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Add Question Button */}
+                <button
+                    type="button"
+                    onClick={addQuestion}
+                    className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition flex items-center justify-center gap-2 font-medium"
+                >
+                    <Plus size={20} /> เพิ่มคำถาม
+                </button>
+
+                {/* Submit */}
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="flex-1 sm:flex-none px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <Save size={18} />
+                        {loading ? 'กำลังบันทึก...' : 'บันทึกข้อสอบ'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/teacher/exams')}
+                        className="px-8 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition"
+                    >
+                        ยกเลิก
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+};
+
+export default CreateExam;
