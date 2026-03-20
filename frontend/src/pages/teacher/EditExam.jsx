@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
-import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
 
 const EditExam = () => {
@@ -15,6 +15,49 @@ const EditExam = () => {
     const [title, setTitle] = useState('');
     const [durationMin, setDurationMin] = useState(30);
     const [questions, setQuestions] = useState([]);
+
+    // Export current questions as CSV
+    const exportQuestionsAsCSV = () => {
+        const bom = '\uFEFF';
+        const header = 'QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points';
+        const escapeCSV = (val) => {
+            const s = String(val ?? '');
+            if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+        };
+        // Strip HTML tags from prompt for CSV readability
+        const stripHTML = (html) => {
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            return div.textContent || div.innerText || '';
+        };
+        const rows = questions.map((q) => {
+            const type = q.type === 'text' ? 'อัตนัย' : 'ปรนัย';
+            const prompt = stripHTML(q.prompt);
+            const opts = [0, 1, 2, 3].map(i => q.choices?.[i]?.label || '');
+            // Convert letter (a,b,c,d) to 1-based number
+            let correctNum = '';
+            if (q.correctAnswer) {
+                const idx = q.correctAnswer.charCodeAt(0) - 97;
+                if (idx >= 0 && idx < (q.choices?.length || 0)) {
+                    correctNum = String(idx + 1);
+                } else {
+                    correctNum = q.correctAnswer;
+                }
+            }
+            return [type, prompt, ...opts, correctNum, q.points || 1].map(escapeCSV).join(',');
+        });
+        const content = bom + header + '\n' + rows.join('\n') + '\n';
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title || 'exam'}_questions.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
 
     useEffect(() => {
         const fetchExam = async () => {
@@ -176,9 +219,20 @@ const EditExam = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">แก้ไขข้อสอบ</h1>
-                <p className="text-gray-500 mt-1">แก้ไขรายละเอียดข้อสอบและคำถาม</p>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">แก้ไขข้อสอบ</h1>
+                    <p className="text-gray-500 mt-1">แก้ไขรายละเอียดข้อสอบและคำถาม</p>
+                </div>
+                {questions.length > 0 && (
+                    <button
+                        type="button"
+                        onClick={exportQuestionsAsCSV}
+                        className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition flex items-center gap-1.5"
+                    >
+                        <Download size={16} /> ดาวน์โหลด CSV
+                    </button>
+                )}
             </div>
 
             {error && (
@@ -281,14 +335,14 @@ const EditExam = () => {
                                     <div
                                         key={cIndex}
                                         className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${q.correctAnswer === choice.value
-                                                ? 'border-green-500 bg-green-50'
-                                                : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                                            ? 'border-green-500 bg-green-50'
+                                            : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
                                             }`}
                                         onClick={() => selectCorrectAnswer(qIndex, choice.value)}
                                     >
                                         <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${q.correctAnswer === choice.value
-                                                ? 'bg-green-500 text-white'
-                                                : 'bg-gray-200 text-gray-500'
+                                            ? 'bg-green-500 text-white'
+                                            : 'bg-gray-200 text-gray-500'
                                             }`}>
                                             {q.correctAnswer === choice.value ? (
                                                 <CheckCircle size={16} />

@@ -19,7 +19,7 @@ app.use(
     })
 );
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "2mb" }));
 
 // ✅ Health check for DigitalOcean
 app.get("/api/health", (req, res) => {
@@ -35,17 +35,29 @@ app.get("/", (req, res) => {
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/exams", require("./routes/examRoutes"));
 app.use("/api/exam-sessions", require("./routes/examSessionRoutes"));
+app.use("/api/ai-generator", require("./routes/aiGeneratorRoutes"));
 
 // Error middleware
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 app.use(notFound);
 app.use(errorHandler);
 
+const http = require("http");
+const socket = require("./utils/socket");
+
 // ✅ IMPORTANT: DO injects PORT (usually 8080)
 const PORT = process.env.PORT || 5001;
 
+const server = http.createServer(app);
+
+// Initialize Socket.io
+socket.init(server, {
+    origin: process.env.CORS_ORIGIN || true,
+    credentials: true,
+});
+
 // ✅ Bind to 0.0.0.0 for container/host platforms
-app.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", () => {
     console.log(
         `Server running in ${process.env.NODE_ENV || "development"} on port ${PORT}`
     );

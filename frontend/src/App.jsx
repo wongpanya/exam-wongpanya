@@ -14,44 +14,48 @@ import ExamSession from './pages/teacher/ExamSession';
 import CheatMonitor from './pages/teacher/CheatMonitor';
 import ExamHistory from './pages/teacher/ExamHistory';
 import ExamAttempts from './pages/teacher/ExamAttempts';
+import AIExamGenerator from './pages/teacher/AIExamGenerator';
 import StudentLayout from './components/StudentLayout';
 import StudentHome from './pages/student/StudentHome';
 import JoinExam from './pages/student/JoinExam';
 import TakeExam from './pages/student/TakeExam';
+import StudentHistory from './pages/student/StudentHistory';
 
 function App() {
   return (
     <DialogProvider>
-    <Router>
-      <div className="App">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/login" element={<Login />} />
+      <Router>
+        <div className="App">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<Login />} />
 
-          {/* Teacher Routes with Sidebar Layout */}
-          <Route path="/teacher" element={<TeacherLayout />}>
-            <Route index element={<TeacherHome />} />
-            <Route path="students" element={<StudentList />} />
-            <Route path="exams" element={<ExamList />} />
-            <Route path="exams/create" element={<CreateExam />} />
-            <Route path="exams/:id" element={<ExamDetail />} />
-            <Route path="exams/:id/edit" element={<EditExam />} />
-            <Route path="exams/:id/session" element={<ExamSession />} />
-            <Route path="exams/:id/monitor" element={<CheatMonitor />} />
-            <Route path="exams/:id/attempts" element={<ExamAttempts />} />
-            <Route path="exams/:id/history" element={<ExamHistory />} />
-          </Route>
+            {/* Teacher Routes with Sidebar Layout */}
+            <Route path="/teacher" element={<TeacherLayout />}>
+              <Route index element={<TeacherHome />} />
+              <Route path="students" element={<StudentList />} />
+              <Route path="exams" element={<ExamList />} />
+              <Route path="exams/create" element={<CreateExam />} />
+              <Route path="exams/:id" element={<ExamDetail />} />
+              <Route path="exams/:id/edit" element={<EditExam />} />
+              <Route path="exams/:id/session" element={<ExamSession />} />
+              <Route path="exams/:id/monitor" element={<CheatMonitor />} />
+              <Route path="exams/:id/attempts" element={<ExamAttempts />} />
+              <Route path="exams/:id/history" element={<ExamHistory />} />
+              <Route path="ai-generator" element={<AIExamGenerator />} />
+            </Route>
 
-          {/* Student Routes */}
-          <Route path="/student" element={<StudentLayout />}>
-            <Route index element={<StudentHome />} />
-            <Route path="join" element={<JoinExam />} />
-            <Route path="exam/:examId" element={<TakeExam />} />
-          </Route>
-        </Routes>
-      </div>
-    </Router>
+            {/* Student Routes */}
+            <Route path="/student" element={<StudentLayout />}>
+              <Route index element={<StudentHome />} />
+              <Route path="history" element={<StudentHistory />} />
+              <Route path="join" element={<JoinExam />} />
+              <Route path="exam/:examId" element={<TakeExam />} />
+            </Route>
+          </Routes>
+        </div>
+      </Router>
     </DialogProvider>
   );
 }

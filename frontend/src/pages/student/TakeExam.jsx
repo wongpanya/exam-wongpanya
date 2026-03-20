@@ -4,10 +4,11 @@ import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
 import useAntiCheat from '../../hooks/useAntiCheat';
 import { Clock, Send, AlertTriangle, CheckCircle, Shield, Save, Lock, Wifi, WifiOff } from 'lucide-react';
+import { io } from 'socket.io-client';
 
-const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
-const DEBOUNCE_SAVE_MS = 2000;
-const STATUS_CHECK_INTERVAL = 5000; // 5 seconds for suspension check
+const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
+const DEBOUNCE_SAVE_MS = 5000;
+const STATUS_CHECK_INTERVAL = 45000; // 45 seconds for suspension check fallback
 
 const TakeExam = () => {
     const { examId } = useParams();
@@ -145,6 +146,39 @@ const TakeExam = () => {
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    // WebSocket Connection for Real-time Suspension
+    useEffect(() => {
+        const userStr = localStorage.getItem('user');
+        if (!userStr) return;
+        
+        let user;
+        try {
+            user = JSON.parse(userStr);
+        } catch (e) { return; }
+
+        const baseUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : window.location.origin;
+        
+        const socket = io(baseUrl, {
+            withCredentials: true
+        });
+
+        socket.on('connect', () => {
+            socket.emit('join_student_room', user._id);
+        });
+
+        socket.on('suspension_update', (data) => {
+            if (data.suspended) {
+                setSuspended(true);
+            } else {
+                setSuspended(false);
+            }
+        });
+
+        return () => {
+            socket.disconnect();
         };
     }, []);
 
@@ -514,13 +548,11 @@ const TakeExam = () => {
                                 type="button"
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => goToPage(pageNum)}
-                                className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center border-2 transition-all ${
-                                    isAnswered
+                                className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center border-2 transition-all ${isAnswered
                                         ? 'bg-indigo-100 border-indigo-400 text-indigo-700'
                                         : 'bg-white border-gray-300 text-gray-500 hover:border-indigo-300 hover:bg-indigo-50'
-                                } ${
-                                    isOnCurrentPage ? 'ring-2 ring-offset-1 ring-indigo-500 scale-110' : ''
-                                }`}
+                                    } ${isOnCurrentPage ? 'ring-2 ring-offset-1 ring-indigo-500 scale-110' : ''
+                                    }`}
                             >
                                 {index + 1}
                             </button>
@@ -538,7 +570,7 @@ const TakeExam = () => {
                             <div className="flex items-start justify-between mb-3">
                                 <div className="flex gap-2">
                                     <span className="font-semibold text-indigo-600 whitespace-nowrap">ข้อ {globalIndex + 1}.</span>
-                                    <div 
+                                    <div
                                         className="prose prose-sm max-w-none text-gray-900"
                                         dangerouslySetInnerHTML={{ __html: q.prompt }}
                                     />

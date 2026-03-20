@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import api from '../config/api';
 
 const FORBIDDEN_KEYS = [
@@ -14,12 +14,25 @@ const FORBIDDEN_KEYS = [
     { key: 'PrintScreen', ctrl: false, shift: false },
 ];
 
+// Event types that count as violations (should trigger immediate flush)
+const VIOLATION_TYPES = new Set([
+    'tab_switch', 'blur', 'copy', 'cut', 'paste',
+    'right_click', 'print_screen', 'devtools', 'forbidden_key'
+]);
+
 const useAntiCheat = (examId, enabled = true, onSuspend) => {
     const [cheatCount, setCheatCount] = useState(0);
     const [isTabHidden, setIsTabHidden] = useState(false);
     const [warnings, setWarnings] = useState([]);
     const logQueueRef = useRef([]);
     const flushTimerRef = useRef(null);
+    const urgentFlushTimerRef = useRef(null);
+    const onSuspendRef = useRef(onSuspend);
+
+    // Keep onSuspend ref current to avoid stale closures
+    useEffect(() => {
+        onSuspendRef.current = onSuspend;
+    }, [onSuspend]);
 
     const getConfig = () => {
         const user = JSON.parse(localStorage.getItem('user'));
@@ -38,42 +51,48 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         setCheatCount(prev => prev + 1);
     };
 
-    // Queue log and flush periodically
-    const logEvent = (eventType, detail = '') => {
-        logQueueRef.current.push({ eventType, detail });
-        addWarning(eventType, detail);
-    };
-
-    const flushLogs = async () => {
+    const flushLogs = useCallback(async () => {
         if (logQueueRef.current.length === 0) return;
 
         const events = [...logQueueRef.current];
         logQueueRef.current = [];
 
         try {
-            // Send events one by one (could batch, but keeping it simple)
-            for (const event of events) {
-                const { data } = await api.post(
-                    `/exam-sessions/${examId}/cheat-log`,
-                    event,
-                    getConfig()
-                );
+            // Send all events as a single batch request
+            const { data } = await api.post(
+                `/exam-sessions/${examId}/cheat-log-batch`,
+                { events },
+                getConfig()
+            );
 
-                if (data.suspendStatus === 'suspended' && onSuspend) {
-                    onSuspend();
-                }
+            if (data.suspendStatus === 'suspended' && onSuspendRef.current) {
+                onSuspendRef.current();
             }
         } catch (err) {
             // If network fails, put events back in queue
             logQueueRef.current = [...events, ...logQueueRef.current];
         }
-    };
+    }, [examId]);
+
+    // Queue log and flush periodically (or immediately for violations)
+    const logEvent = useCallback((eventType, detail = '') => {
+        logQueueRef.current.push({ eventType, detail });
+        addWarning(eventType, detail);
+
+        // If this is a violation event, flush quickly (1s debounce to batch rapid events)
+        if (VIOLATION_TYPES.has(eventType)) {
+            if (urgentFlushTimerRef.current) clearTimeout(urgentFlushTimerRef.current);
+            urgentFlushTimerRef.current = setTimeout(() => {
+                flushLogs();
+            }, 1000);
+        }
+    }, [flushLogs]);
 
     useEffect(() => {
         if (!enabled || !examId) return;
 
-        // Flush logs every 3 seconds
-        flushTimerRef.current = setInterval(flushLogs, 3000);
+        // Regular flush every 10 seconds for non-urgent events
+        flushTimerRef.current = setInterval(flushLogs, 10000);
 
         // --- Visibility Change (Tab Switch) ---
         const handleVisibilityChange = () => {
@@ -155,11 +174,12 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
             document.removeEventListener('keydown', handleKeyDown, true);
 
             if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+            if (urgentFlushTimerRef.current) clearTimeout(urgentFlushTimerRef.current);
 
             // Flush remaining logs
             flushLogs();
         };
-    }, [enabled, examId]);
+    }, [enabled, examId, logEvent, flushLogs]);
 
     return {
         cheatCount,

@@ -10,6 +10,7 @@ const {
     autoSave,
     submitExam,
     logCheatEvent,
+    logCheatEventBatch,
     getCheatLogs,
     getStudentCheatLogs,
     toggleStudentSuspension,
@@ -17,6 +18,7 @@ const {
     getSessionAttempts,
     getMyAttemptStatus,
     deleteSession,
+    getMyHistory,
 } = require('../controllers/examSessionController');
 const { protect, teacher } = require('../middleware/authMiddleware');
 
@@ -32,11 +34,13 @@ router.get('/:examId/history', protect, teacher, getExamHistory);
 router.delete('/:sessionId', protect, teacher, deleteSession);
 
 // Student routes (authenticated)
+router.get('/my-history', protect, getMyHistory); // Must be before /:examId routes to not be parsed as examId
 router.post('/:examId/join', protect, joinExam);
 router.get('/:examId/attempt', protect, getAttempt);
 router.post('/:examId/auto-save', protect, autoSave);
 router.post('/:examId/submit', protect, submitExam);
 router.post('/:examId/cheat-log', protect, logCheatEvent);
+router.post('/:examId/cheat-log-batch', protect, logCheatEventBatch);
 router.get('/:examId/my-status', protect, getMyAttemptStatus);
 
 // Status (both teacher and student)

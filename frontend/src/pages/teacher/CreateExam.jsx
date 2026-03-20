@@ -1,29 +1,153 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
-import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
+
+// --- CSV Template & Parser ---
+const CSV_TEMPLATE_HEADER = 'QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points';
+const CSV_TEMPLATE_EXAMPLE = 'ปรนัย,เมืองหลวงของไทยคือ?,เชียงใหม่,กรุงเทพ,ภูเก็ต,ขอนแก่น,2,1';
+
+function downloadCSVTemplate() {
+    const bom = '\uFEFF'; // UTF-8 BOM for Excel compat
+    const content = bom + CSV_TEMPLATE_HEADER + '\n' + CSV_TEMPLATE_EXAMPLE + '\n';
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'exam_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (ch === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    result.push(current.trim());
+    return result;
+}
+
+function parseCSVToQuestions(csvText) {
+    const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) throw new Error('ไฟล์ CSV ต้องมีอย่างน้อย 1 แถวข้อมูล (ไม่รวม header)');
+
+    // Skip header row
+    const dataLines = lines.slice(1);
+    const questions = [];
+
+    for (let i = 0; i < dataLines.length; i++) {
+        const cols = parseCSVLine(dataLines[i]);
+        if (cols.length < 3) continue; // skip invalid rows
+
+        const [rawType, prompt, opt1, opt2, opt3, opt4, rawCorrect, rawPoints] = cols;
+        const type = rawType?.trim();
+        const isText = type === 'อัตนัย' || type?.toLowerCase() === 'text';
+
+        if (isText) {
+            questions.push({
+                type: 'text',
+                prompt: prompt || '',
+                choices: [],
+                correctAnswer: rawCorrect || '',
+                points: Number(rawPoints) || 1,
+            });
+        } else {
+            // Multiple-choice (ปรนัย / radio)
+            const options = [opt1, opt2, opt3, opt4].filter(o => o && o.trim());
+            const choices = options.map((label, idx) => ({
+                value: String.fromCharCode(97 + idx), // a, b, c, d
+                label: label.trim(),
+            }));
+            // CorrectAnswer: accept number (1-based) or letter (a,b,c,d)
+            let correctAnswer = '';
+            const ca = rawCorrect?.trim();
+            if (ca) {
+                const num = parseInt(ca, 10);
+                if (!isNaN(num) && num >= 1 && num <= choices.length) {
+                    correctAnswer = String.fromCharCode(97 + num - 1);
+                } else if (/^[a-d]$/i.test(ca)) {
+                    correctAnswer = ca.toLowerCase();
+                }
+            }
+            questions.push({
+                type: 'radio',
+                prompt: prompt || '',
+                choices,
+                correctAnswer,
+                points: Number(rawPoints) || 1,
+            });
+        }
+    }
+
+    if (questions.length === 0) throw new Error('ไม่พบข้อมูลข้อสอบที่ถูกต้องในไฟล์ CSV');
+    return questions;
+}
 
 const CreateExam = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
+    // Check for imported questions from AI Generator
+    const importedQuestions = location.state?.importedQuestions;
+
+    const csvFileRef = useRef(null);
     const [title, setTitle] = useState('');
     const [durationMin, setDurationMin] = useState(30);
-    const [questions, setQuestions] = useState([
-        {
-            type: 'radio',
-            prompt: '',
-            choices: [
-                { value: 'a', label: '' },
-                { value: 'b', label: '' },
-            ],
-            correctAnswer: '',
-            points: 1,
-        },
-    ]);
+    const [questions, setQuestions] = useState(
+        importedQuestions && importedQuestions.length > 0
+            ? importedQuestions
+            : [
+                {
+                    type: 'radio',
+                    prompt: '',
+                    choices: [
+                        { value: 'a', label: '' },
+                        { value: 'b', label: '' },
+                    ],
+                    correctAnswer: '',
+                    points: 1,
+                },
+            ]
+    );
+
+    const handleCSVUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setError('');
+        setSuccess('');
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const parsed = parseCSVToQuestions(evt.target.result);
+                setQuestions(parsed);
+                setSuccess(`นำเข้า ${parsed.length} ข้อสำเร็จจากไฟล์ CSV`);
+            } catch (err) {
+                setError(err.message);
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+        e.target.value = ''; // reset so same file can be re-uploaded
+    };
 
     const addQuestion = () => {
         setQuestions([
@@ -197,6 +321,39 @@ const CreateExam = () => {
                     </div>
                 </div>
 
+                {/* CSV Import Section */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-lg font-semibold text-gray-900">นำเข้าข้อสอบจาก CSV</h2>
+                            <p className="text-sm text-gray-500 mt-0.5">ดาวน์โหลดเทมเพลต → กรอกข้อสอบ → อัปโหลด</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={downloadCSVTemplate}
+                                className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition flex items-center gap-1.5"
+                            >
+                                <Download size={16} /> ดาวน์โหลดเทมเพลต
+                            </button>
+                            <input
+                                type="file"
+                                ref={csvFileRef}
+                                accept=".csv"
+                                onChange={handleCSVUpload}
+                                className="hidden"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => csvFileRef.current?.click()}
+                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition flex items-center gap-1.5"
+                            >
+                                <Upload size={16} /> อัปโหลด CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 {/* Questions */}
                 <div className="space-y-4">
                     {questions.map((q, qIndex) => (
@@ -257,15 +414,15 @@ const CreateExam = () => {
                                     <div
                                         key={cIndex}
                                         className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${q.correctAnswer === choice.value
-                                                ? 'border-green-500 bg-green-50'
-                                                : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                                            ? 'border-green-500 bg-green-50'
+                                            : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
                                             }`}
                                         onClick={() => selectCorrectAnswer(qIndex, choice.value)}
                                     >
                                         {/* Correct answer indicator */}
                                         <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${q.correctAnswer === choice.value
-                                                ? 'bg-green-500 text-white'
-                                                : 'bg-gray-200 text-gray-500'
+                                            ? 'bg-green-500 text-white'
+                                            : 'bg-gray-200 text-gray-500'
                                             }`}>
                                             {q.correctAnswer === choice.value ? (
                                                 <CheckCircle size={16} />

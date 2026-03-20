@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -11,9 +12,8 @@ const ToolbarButton = ({ onClick, isActive, title, children }) => (
             e.preventDefault();
             onClick();
         }}
-        className={`p-1.5 rounded hover:bg-gray-200 transition select-none ${
-            isActive ? 'bg-gray-200 text-indigo-600' : 'text-gray-600'
-        }`}
+        className={`p-1.5 rounded hover:bg-gray-200 transition select-none ${isActive ? 'bg-gray-200 text-indigo-600' : 'text-gray-600'
+            }`}
         title={title}
     >
         {children}
@@ -112,6 +112,17 @@ const RichTextEditor = ({ content, onChange, placeholder = 'พิมพ์ข�
             },
         },
     });
+
+    // Sync external content changes (e.g. CSV import) into the editor
+    useEffect(() => {
+        if (editor && content !== undefined) {
+            const currentHTML = editor.getHTML();
+            // Only update if the external content actually differs
+            if (currentHTML !== content) {
+                editor.commands.setContent(content || '', false);
+            }
+        }
+    }, [content, editor]);
 
     return (
         <div className="border border-gray-200 rounded-lg bg-white overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent transition-all">

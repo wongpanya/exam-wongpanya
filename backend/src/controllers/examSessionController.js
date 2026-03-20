@@ -5,6 +5,9 @@ const ExamAttempt = require('../models/examAttemptModel');
 const CheatingLog = require('../models/cheatingLogModel');
 const User = require('../models/userModel');
 const { generateQRToken, parseQRToken, verifyQRToken } = require('../utils/qrToken');
+const cheatTracker = require('../utils/cheatTracker');
+const cache = require('../utils/cache');
+const socket = require('../utils/socket');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
 
@@ -41,7 +44,7 @@ const startExam = asyncHandler(async (req, res) => {
         createdBy: req.user._id,
         status: 'active',
         startedAt: Date.now(),
-        qrRotateInterval: qrRotateInterval || 10,
+        qrRotateInterval: qrRotateInterval !== undefined ? Number(qrRotateInterval) : 10,
         shuffleQuestions: shuffleQuestions || false,
         cheatConfig: cheatConfig || {},
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
@@ -73,11 +76,13 @@ const stopExam = asyncHandler(async (req, res) => {
     session.endedAt = Date.now();
     await session.save();
 
-    // Mark all in-progress attempts as submitted (optional, or just handle gracefully)
-    // For now, let's keep them as is, but maybe mark them 'submitted' with a flag?
+    // Clear in-memory cheat tracker for this session
+    cheatTracker.clearSession(session._id.toString());
+
+    // Mark all in-progress attempts as submitted
     await ExamAttempt.updateMany(
         { session: session._id, status: 'in-progress' },
-        { status: 'submitted', submittedAt: Date.now() } // Auto-submit
+        { status: 'submitted', submittedAt: Date.now() }
     );
 
     res.json(session);
@@ -112,8 +117,9 @@ const getQRToken = asyncHandler(async (req, res) => {
         throw new Error('No active session');
     }
 
-    // Generate a short-lived token signed with secret
-    const token = generateQRToken(req.params.examId, QR_SECRET);
+    // Generate a short-lived token signed with secret, or 24h if static
+    const expiry = session.qrRotateInterval > 0 ? session.qrRotateInterval + 10 : 86400;
+    const token = generateQRToken(req.params.examId, QR_SECRET, expiry);
 
     res.json({ token });
 });
@@ -268,51 +274,70 @@ const getAttempt = asyncHandler(async (req, res) => {
 const autoSave = asyncHandler(async (req, res) => {
     const { answers } = req.body; // Array of { questionId, answer }
 
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    // 1. Use cache to get session and exam config to avoid 2 DB queries
+    const cacheKey = `session_exam_${req.params.examId}`;
+    let sessionData = cache.get(cacheKey);
 
-    if (!session) {
-        res.status(404);
-        throw new Error('Session not found');
+    if (!sessionData) {
+        const session = await ExamSession.findOne({
+            exam: req.params.examId,
+        }).sort({ createdAt: -1 });
+
+        if (!session) {
+            res.status(404);
+            throw new Error('Session not found');
+        }
+
+        const examData = await Exam.findById(session.exam);
+        sessionData = {
+            _id: session._id,
+            startedAt: session.startedAt,
+            durationMin: examData.durationMin
+        };
+        cache.set(cacheKey, sessionData);
     }
 
-    const attempt = await ExamAttempt.findOne({
-        session: session._id,
-        student: req.user._id,
-    });
-
-    if (!attempt) {
-        res.status(404);
-        throw new Error('Attempt not found');
-    }
-
-    if (attempt.status === 'submitted') {
-        res.status(400);
-        throw new Error('Exam already submitted');
-    }
-
-    if (attempt.status === 'suspended') {
-        res.status(403);
-        throw new Error('Cannot save: Exam attempt is suspended');
-    }
-
-    const examData = await Exam.findById(session.exam);
-    const startTime = new Date(session.startedAt).getTime();
-    const durationMs = examData.durationMin * 60 * 1000;
+    // 2. Validate Time Limit
+    const startTime = new Date(sessionData.startedAt).getTime();
+    const durationMs = sessionData.durationMin * 60 * 1000;
     if (Date.now() > startTime + durationMs + 30000) {
         res.status(400);
         throw new Error('Exam time limit exceeded');
     }
 
-    // Update answers
-    // Merge logic: update existing answer or push new
-    // We can just replace the array if we send full state, or merge carefully
-    // Assuming frontend sends full state of answered questions
-    attempt.answers = answers;
-    await attempt.save();
+    // 3. High-Performance Atomic Update
+    // Matches attempt only if it exists and is not submitted/suspended
+    const updateResult = await ExamAttempt.updateOne(
+        {
+            session: sessionData._id,
+            student: req.user._id,
+            status: { $nin: ['submitted', 'suspended'] }
+        },
+        { $set: { answers } }
+    );
 
-    res.json({ message: 'Saved', saved: true, status: attempt.status });
+    // 4. Fallback checking if update failed
+    if (updateResult.matchedCount === 0) {
+        const attempt = await ExamAttempt.findOne({
+            session: sessionData._id,
+            student: req.user._id,
+        });
+
+        if (!attempt) {
+            res.status(404);
+            throw new Error('Attempt not found');
+        }
+        if (attempt.status === 'submitted') {
+            res.status(400);
+            throw new Error('Exam already submitted');
+        }
+        if (attempt.status === 'suspended') {
+            res.status(403);
+            throw new Error('Cannot save: Exam attempt is suspended');
+        }
+    }
+
+    res.json({ message: 'Saved', saved: true, status: 'in-progress' });
 });
 
 // @desc    Submit exam
@@ -424,10 +449,9 @@ const logCheatEvent = asyncHandler(async (req, res) => {
         timestamp: Date.now(),
     });
 
-    // Check for Auto-Suspend
+    // Check for Auto-Suspend using in-memory tracker
     let suspendStatus = null;
 
-    // Map raw event types to config keys
     const configKeyMap = {
         'tab_switch': 'tabSwitch',
         'blur': 'windowBlur',
@@ -442,27 +466,16 @@ const logCheatEvent = asyncHandler(async (req, res) => {
 
     const configKey = configKeyMap[eventType] || eventType;
 
-    // Check for Auto-Suspend - NOW MONITORS ALL EVENTS BY DEFAULT
     if (configKey) {
-
-        // Fetch all logs
-        const allLogs = await CheatingLog.find({
-            session: session._id,
-            student: req.user._id,
-            isResolved: { $ne: true }
-        });
-
-        // Count how many logs map to ANY known cheat config key
-        const currentViolationCount = allLogs.filter(l => {
-            const key = configKeyMap[l.eventType] || l.eventType;
-            return Object.values(configKeyMap).includes(key) || key === 'tabSwitch';
-        }).length;
+        // Use in-memory counter instead of DB query
+        const currentViolationCount = cheatTracker.increment(
+            session._id.toString(),
+            req.user._id.toString()
+        );
 
         const limit = (session.maxCheatEvents === undefined || session.maxCheatEvents === null) ? 1 : session.maxCheatEvents;
 
-        // Only suspend if limit > 0
         if (limit > 0 && currentViolationCount >= limit) {
-            // Auto-suspend the student
             const updatedAttempt = await ExamAttempt.findOneAndUpdate(
                 { session: session._id, student: req.user._id },
                 { status: 'suspended' },
@@ -470,10 +483,15 @@ const logCheatEvent = asyncHandler(async (req, res) => {
             );
             if (updatedAttempt) {
                 suspendStatus = 'suspended';
+                try {
+                    const io = socket.getIO();
+                    io.to(`student_${req.user._id}`).emit('suspension_update', { suspended: true });
+                } catch (e) {
+                    console.error('Socket error on auto-suspend:', e.message);
+                }
             }
         }
     }
-
 
     res.status(201).json({ ...log.toObject(), suspendStatus });
 });
@@ -516,13 +534,15 @@ const getCheatLogs = asyncHandler(async (req, res) => {
     // Aggregate by student
     const byStudent = await CheatingLog.aggregate([
         { $match: { session: session._id } },
-        { $group: { 
-            _id: '$student', 
-            totalCount: { $sum: 1 },
-            count: { 
-                $sum: { $cond: [{ $eq: ['$isResolved', true] }, 0, 1] } 
-            } 
-        } },
+        {
+            $group: {
+                _id: '$student',
+                totalCount: { $sum: 1 },
+                count: {
+                    $sum: { $cond: [{ $eq: ['$isResolved', true] }, 0, 1] }
+                }
+            }
+        },
         { $sort: { count: -1 } },
         { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'studentInfo' } },
         { $unwind: '$studentInfo' },
@@ -666,7 +686,10 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
         attempt.status = 'suspended';
     } else if (!suspend && attempt.status === 'suspended') {
         attempt.status = 'in-progress';
-        
+
+        // Reset in-memory cheat counter
+        cheatTracker.reset(session._id.toString(), req.params.studentId);
+
         // Mark all existing cheat logs as resolved so they don't count towards the next suspension
         await CheatingLog.updateMany(
             { session: session._id, student: req.params.studentId },
@@ -675,6 +698,13 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
     }
 
     await attempt.save();
+
+    try {
+        const io = socket.getIO();
+        io.to(`student_${req.params.studentId}`).emit('suspension_update', { suspended });
+    } catch (e) {
+        console.error('Socket error on manual suspend toggle:', e.message);
+    }
 
     res.json({
         success: true,
@@ -784,6 +814,9 @@ const deleteSession = asyncHandler(async (req, res) => {
         throw new Error('Not authorized');
     }
 
+    // Clear in-memory cheat tracker
+    cheatTracker.clearSession(session._id.toString());
+
     // Delete attempts
     await ExamAttempt.deleteMany({ session: session._id });
 
@@ -796,6 +829,95 @@ const deleteSession = asyncHandler(async (req, res) => {
     res.json({ message: 'Session deleted successfully' });
 });
 
+// @desc    Log cheat events in batch
+// @route   POST /api/exam-sessions/:examId/cheat-log-batch
+// @access  Private/Student
+const logCheatEventBatch = asyncHandler(async (req, res) => {
+    const { events } = req.body; // Array of { eventType, detail }
+
+    if (!events || !Array.isArray(events) || events.length === 0) {
+        return res.status(400).json({ message: 'No events provided' });
+    }
+
+    // Cap batch size to prevent abuse
+    const batch = events.slice(0, 50);
+
+    const session = await ExamSession.findOne({
+        exam: req.params.examId,
+    }).sort({ createdAt: -1 });
+
+    if (!session) {
+        res.status(404);
+        throw new Error('Session not found');
+    }
+
+    // Build documents for insertMany
+    const docs = batch.map(e => ({
+        exam: session.exam,
+        session: session._id,
+        student: req.user._id,
+        eventType: e.eventType,
+        detail: e.detail || '',
+        timestamp: Date.now(),
+    }));
+
+    await CheatingLog.insertMany(docs);
+
+    // Update in-memory violation counter
+    const configKeyMap = {
+        'tab_switch': 'tabSwitch',
+        'blur': 'windowBlur',
+        'copy': 'copyPaste',
+        'cut': 'copyPaste',
+        'paste': 'copyPaste',
+        'right_click': 'rightClick',
+        'print_screen': 'printScreen',
+        'devtools': 'devTools',
+        'forbidden_key': 'forbiddenKeys'
+    };
+
+    // Count only events that map to a known cheat type
+    const violationEvents = batch.filter(e => configKeyMap[e.eventType]);
+    let suspendStatus = null;
+
+    if (violationEvents.length > 0) {
+        const currentCount = cheatTracker.increment(
+            session._id.toString(),
+            req.user._id.toString(),
+            violationEvents.length
+        );
+
+        const limit = (session.maxCheatEvents === undefined || session.maxCheatEvents === null) ? 1 : session.maxCheatEvents;
+
+        if (limit > 0 && currentCount >= limit) {
+            const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+                { session: session._id, student: req.user._id },
+                { status: 'suspended' },
+                { new: true }
+            );
+            if (updatedAttempt) {
+                suspendStatus = 'suspended';
+            }
+        }
+    }
+
+    res.status(201).json({ inserted: docs.length, suspendStatus });
+});
+
+// @desc    Get student's own exam history
+// @route   GET /api/exam-sessions/my-history
+// @access  Private/Student
+const getMyHistory = asyncHandler(async (req, res) => {
+    const attempts = await ExamAttempt.find({
+        student: req.user._id,
+        status: { $in: ['submitted', 'suspended'] }
+    })
+    .populate('exam', 'title description durationMin totalPoints passingScore')
+    .sort({ endedAt: -1, updatedAt: -1 });
+
+    res.json(attempts);
+});
+
 module.exports = {
     startExam,
     stopExam,
@@ -806,6 +928,7 @@ module.exports = {
     autoSave,
     submitExam,
     logCheatEvent,
+    logCheatEventBatch,
     getCheatLogs,
     getStudentCheatLogs,
     toggleStudentSuspension,
@@ -813,4 +936,5 @@ module.exports = {
     getSessionAttempts,
     getMyAttemptStatus,
     deleteSession,
+    getMyHistory,
 };

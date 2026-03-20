@@ -181,11 +181,11 @@ const JoinExam = () => {
             setManualLoading(false);
         }
     };
-
+ 
     useEffect(() => {
         return () => {
             if (html5QrCodeRef.current) {
-                try { html5QrCodeRef.current.stop(); } catch (e) { /* ignore */ }
+                try { html5QrCodeRef.current.stop(); } catch (e) { /* ignore1 */ }
                 try { html5QrCodeRef.current.clear(); } catch (e) { /* ignore */ }
                 html5QrCodeRef.current = null;
             }
