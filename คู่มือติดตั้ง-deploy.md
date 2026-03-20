@@ -98,7 +98,7 @@ npm run dev
 5. เปิดเมนู Environment Variables และใส่ค่า:
    - `VITE_API_URL`: เอาเดโม URL ได้จาก DO ข้อที่ 9 + เติม `/api` เข้าไป (เช่น `https://sea-turtle-app-xxxx.ondigitalocean.app/api`)
    - `VITE_SOCKET_URL`: ใส่ URL ขา DO แบบมีแค่โดเมนอย่างเดียว (เช่น `https://sea-turtle-app-xxxx.ondigitalocean.app`)
-6. กด **Deploy** สนุกไปเลย!
+6. กด **Deploy** 
 7. **(สำคัญมาก)** สำเนา URL ของ Frontend ที่เสร็จแล้ว (เช่น `https://exam-student-xxx.vercel.app`)
    - **กลับไปที่ DigitalOcean Apps > Settings > App-Level Environment Variables**
    - ตั้ง/แก้ไขตัวแปร `FRONTEND_URL` โยนโดเมนตะกี้ลงไป (อย่าใส่เครื่องหมาย `/` ปิดท้าย)
