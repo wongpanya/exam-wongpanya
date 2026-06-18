@@ -60,6 +60,8 @@ const examSchema = new mongoose.Schema({
     timestamps: true,
 });
 
+examSchema.index({ createdBy: 1 });
+
 const Exam = mongoose.model('Exam', examSchema);
 
 module.exports = Exam;

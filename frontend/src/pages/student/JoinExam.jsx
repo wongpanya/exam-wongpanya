@@ -50,8 +50,7 @@ const JoinExam = () => {
 
             const { data } = await api.post(
                 `/exam-sessions/${tokenData.examId}/join`,
-                { qrToken: rawToken || tokenData },
-                getConfig()
+                { qrToken: rawToken || tokenData }
             );
 
             setStatus('success');

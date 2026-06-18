@@ -32,12 +32,14 @@ const examSessionSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
-    currentNonce: {
-        type: String,
+    studentCount: {
+        type: Number,
+        default: 0,
     },
-    usedNonces: [{
-        type: String,
-    }],
+    submittedCount: {
+        type: Number,
+        default: 0,
+    },
     startedAt: {
         type: Date,
         default: Date.now,
@@ -53,6 +55,9 @@ const examSessionSchema = new mongoose.Schema({
 }, {
     timestamps: true,
 });
+
+examSessionSchema.index({ exam: 1, status: 1 });
+examSessionSchema.index({ createdBy: 1 });
 
 const ExamSession = mongoose.model('ExamSession', examSessionSchema);
 

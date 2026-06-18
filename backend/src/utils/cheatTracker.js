@@ -8,6 +8,7 @@
  */
 
 const violationCounts = new Map();
+const MAX_ENTRIES = 50000;
 
 function makeKey(sessionId, studentId) {
     return `${sessionId}:${studentId}`;
@@ -17,6 +18,10 @@ function makeKey(sessionId, studentId) {
  * เพิ่ม violation count +1 แล้ว return count ปัจจุบัน
  */
 function increment(sessionId, studentId, amount = 1) {
+    if (violationCounts.size >= MAX_ENTRIES) {
+        const firstKey = violationCounts.keys().next().value;
+        violationCounts.delete(firstKey);
+    }
     const key = makeKey(sessionId, studentId);
     const current = violationCounts.get(key) || 0;
     const newCount = current + amount;
@@ -62,10 +67,23 @@ function size() {
     return violationCounts.size;
 }
 
+async function initFromDB(sessionId) {
+    const CheatingLog = require('../models/cheatingLogModel');
+    const counts = await CheatingLog.aggregate([
+        { $match: { session: new (require('mongoose').Types.ObjectId)(sessionId), isResolved: { $ne: true } } },
+        { $group: { _id: '$student', count: { $sum: 1 } } },
+    ]);
+    counts.forEach(c => {
+        violationCounts.set(makeKey(sessionId, c._id.toString()), c.count);
+    });
+    return counts.length;
+}
+
 module.exports = {
     increment,
     get,
     reset,
     clearSession,
     size,
+    initFromDB,
 };

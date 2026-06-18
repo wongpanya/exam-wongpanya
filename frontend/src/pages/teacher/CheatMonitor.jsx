@@ -7,6 +7,7 @@ import {
     Copy, Mouse, Keyboard, Monitor, Users, Filter, X, Lock, Unlock,
     Search, SortAsc
 } from 'lucide-react';
+import { getSocket } from '../../config/socket';
 
 const EVENT_CONFIG = {
     tab_switch: { label: 'สลับแท็บ', color: '#ef4444', bg: '#fef2f2', icon: Monitor },
@@ -54,7 +55,7 @@ const CheatMonitor = () => {
             const url = sessionId
                 ? `/exam-sessions/${id}/cheat-logs?sessionId=${sessionId}`
                 : `/exam-sessions/${id}/cheat-logs`;
-            const { data: result } = await api.get(url, getConfig());
+            const { data: result } = await api.get(url);
             setData(result);
             setError('');
         } catch (err) {
@@ -70,7 +71,7 @@ const CheatMonitor = () => {
             const url = sessionId
                 ? `/exam-sessions/${id}/students/${studentId}/logs?sessionId=${sessionId}`
                 : `/exam-sessions/${id}/students/${studentId}/logs`;
-            const { data } = await api.get(url, getConfig());
+            const { data } = await api.get(url);
             setStudentLogs(data);
         } catch (err) {
             console.error(err);
@@ -81,11 +82,28 @@ const CheatMonitor = () => {
 
     useEffect(() => {
         fetchLogs();
-        pollRef.current = setInterval(fetchLogs, POLL_INTERVAL);
-        return () => {
-            if (pollRef.current) clearInterval(pollRef.current);
-        };
     }, [id, sessionId]);
+
+    // Socket.io for real-time cheat events
+    useEffect(() => {
+        if (!data?.session) return;
+
+        const socket = getSocket();
+        if (!socket) return;
+
+        socket.emit('join-teacher-room', data.session);
+
+        const handleCheatEvent = () => {
+            fetchLogs();
+        };
+
+        socket.on('cheat-event', handleCheatEvent);
+
+        return () => {
+            socket.off('cheat-event', handleCheatEvent);
+            socket.emit('leave-teacher-room', data.session);
+        };
+    }, [data?.session]);
 
     const handleStudentClick = (student) => {
         setSelectedStudent(student);
@@ -118,8 +136,7 @@ const CheatMonitor = () => {
             // Let's keep it simple.
 
             await api.post(`/exam-sessions/${id}/students/${selectedStudent._id}/suspend`,
-                { suspend },
-                getConfig()
+                { suspend }
             );
 
             // Refresh student logs to get updated status

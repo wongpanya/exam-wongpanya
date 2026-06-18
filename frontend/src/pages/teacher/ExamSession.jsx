@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import api from '../../config/api';
+import { getSocket } from '../../config/socket';
 import { useDialog } from '../../components/DialogProvider';
 import { Users, StopCircle, RefreshCw, Clock, AlertTriangle, Shield, Settings, Shuffle } from 'lucide-react';
 
@@ -19,7 +20,6 @@ const ExamSession = () => {
 
     // Settings (shown before starting)
     const [showSettings, setShowSettings] = useState(true);
-    const [randomizeQR, setRandomizeQR] = useState(true);
     const [rotateInterval, setRotateInterval] = useState(10);
     const [shuffleQuestions, setShuffleQuestions] = useState(false);
 
@@ -37,7 +37,7 @@ const ExamSession = () => {
 
     const fetchQR = useCallback(async () => {
         try {
-            const { data } = await api.get(`/exam-sessions/${id}/qr`, getConfig());
+            const { data } = await api.get(`/exam-sessions/${id}/qr`);
             // Backend sends token object, stringify for QR
             const tokenStr = typeof data.token === 'object' ? JSON.stringify(data.token) : data.token;
             setQrData(tokenStr);
@@ -49,7 +49,7 @@ const ExamSession = () => {
 
     const fetchStudents = useCallback(async () => {
         try {
-            const { data } = await api.get(`/exam-sessions/${id}/attempts`, getConfig());
+            const { data } = await api.get(`/exam-sessions/${id}/attempts`);
             setStudents(data);
         } catch (err) {
             console.error('Students fetch failed:', err);
@@ -60,15 +60,14 @@ const ExamSession = () => {
     useEffect(() => {
         const checkExisting = async () => {
             try {
-                const examRes = await api.get(`/exams/${id}`, getConfig());
+                const examRes = await api.get(`/exams/${id}`);
                 setExam(examRes.data);
 
-                const statusRes = await api.get(`/exam-sessions/${id}/status`, getConfig());
-                if (statusRes.data && statusRes.data.status === 'active') {
+                const statusRes = await api.get(`/exam-sessions/${id}/status`);
+                if (statusRes.data.active) {
                     // Session already exists, skip settings
                     setSession(statusRes.data); // Backend returns the session object directly
-                    setRandomizeQR(statusRes.data.qrRotateInterval > 0);
-                    setRotateInterval(statusRes.data.qrRotateInterval > 0 ? statusRes.data.qrRotateInterval : 10);
+                    setRotateInterval(statusRes.data.qrRotateInterval || 10);
                     setShuffleQuestions(statusRes.data.shuffleQuestions || false);
                     setMaxCheatEvents(statusRes.data.maxCheatEvents || 1);
                     setShowSettings(false);
@@ -90,12 +89,7 @@ const ExamSession = () => {
         try {
             const { data } = await api.post(
                 `/exam-sessions/${id}/start`,
-                { 
-                    qrRotateInterval: randomizeQR ? rotateInterval : 0, 
-                    shuffleQuestions, 
-                    maxCheatEvents 
-                },
-                getConfig()
+                { qrRotateInterval: rotateInterval, shuffleQuestions, maxCheatEvents }
             );
             setSession(data);
             setShowSettings(false);
@@ -112,29 +106,53 @@ const ExamSession = () => {
     useEffect(() => {
         if (!session || session.status === 'ended' || showSettings) return;
 
-        // If randomize is disabled, interval is 0
-        const interval = randomizeQR ? rotateInterval : 0;
-        
-        if (interval > 0) {
-            qrTimerRef.current = setInterval(() => {
-                fetchQR();
-                fetchStudents();
-            }, interval * 1000);
-        } else {
-            // Still fetch students even if QR is not rotating
-            qrTimerRef.current = setInterval(() => {
-                fetchStudents();
-            }, 5000);
-        }
+        qrTimerRef.current = setInterval(() => {
+            fetchQR();
+        }, rotateInterval * 1000);
 
         return () => {
             if (qrTimerRef.current) clearInterval(qrTimerRef.current);
         };
-    }, [session, rotateInterval, randomizeQR, fetchQR, fetchStudents, showSettings]);
+    }, [session, rotateInterval, fetchQR, showSettings]);
+
+    // Socket.io for real-time student updates
+    useEffect(() => {
+        if (!session || session.status === 'ended' || showSettings) return;
+
+        const socket = getSocket();
+        if (!socket) return;
+
+        socket.emit('join-teacher-room', session._id);
+
+        const handleStudentJoined = (data) => {
+            setStudents(prev => {
+                if (prev.find(s => s._id === data._id)) return prev;
+                return [...prev, data];
+            });
+        };
+
+        const handleStudentSubmitted = (data) => {
+            setStudents(prev => prev.map(s => {
+                if (s.student?._id === data.studentId || s.student === data.studentId) {
+                    return { ...s, status: 'submitted', score: data.score };
+                }
+                return s;
+            }));
+        };
+
+        socket.on('student-joined', handleStudentJoined);
+        socket.on('student-submitted', handleStudentSubmitted);
+
+        return () => {
+            socket.off('student-joined', handleStudentJoined);
+            socket.off('student-submitted', handleStudentSubmitted);
+            socket.emit('leave-teacher-room', session._id);
+        };
+    }, [session, showSettings]);
 
     // Countdown timer
     useEffect(() => {
-        if (!session || session.status === 'ended' || showSettings || (!randomizeQR)) return;
+        if (!session || session.status === 'ended' || showSettings) return;
 
         countdownRef.current = setInterval(() => {
             setQrCountdown(prev => (prev > 0 ? prev - 1 : 0));
@@ -143,7 +161,7 @@ const ExamSession = () => {
         return () => {
             if (countdownRef.current) clearInterval(countdownRef.current);
         };
-    }, [session, showSettings, randomizeQR]);
+    }, [session, showSettings]);
 
     const handleStop = async () => {
         const ok = await showConfirm({
@@ -155,7 +173,7 @@ const ExamSession = () => {
         if (!ok) return;
 
         try {
-            await api.post(`/exam-sessions/${id}/stop`, {}, getConfig());
+            await api.post(`/exam-sessions/${id}/stop`, {});
             setSession(prev => ({ ...prev, status: 'ended' }));
             if (qrTimerRef.current) clearInterval(qrTimerRef.current);
             if (countdownRef.current) clearInterval(countdownRef.current);
@@ -202,51 +220,28 @@ const ExamSession = () => {
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
-                    {/* QR Interval Settings */}
+                    {/* QR Interval */}
                     <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="text-sm font-medium text-gray-700 block">
-                                ⏱️ ความถี่หมุน QR Code (วินาที)
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <span className="text-sm text-gray-600">สุ่ม QR Code</span>
-                                <input
-                                    type="checkbox"
-                                    className="hidden"
-                                    checked={randomizeQR}
-                                    onChange={(e) => setRandomizeQR(e.target.checked)}
-                                />
-                                <div className={`relative w-10 h-5 rounded-full transition ${randomizeQR ? 'bg-indigo-600' : 'bg-gray-300'}`}>
-                                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${randomizeQR ? 'translate-x-5' : ''}`} />
-                                </div>
-                            </label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            ⏱️ ความถี่หมุน QR Code (วินาที)
+                        </label>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="range"
+                                min="5"
+                                max="30"
+                                step="5"
+                                value={rotateInterval}
+                                onChange={(e) => setRotateInterval(Number(e.target.value))}
+                                className="flex-1"
+                            />
+                            <span className="text-lg font-bold text-indigo-600 w-10 text-center">
+                                {rotateInterval}
+                            </span>
                         </div>
-                        
-                        {randomizeQR ? (
-                            <>
-                                <div className="flex items-center gap-3">
-                                    <input
-                                        type="range"
-                                        min="5"
-                                        max="30"
-                                        step="5"
-                                        value={rotateInterval || 10}
-                                        onChange={(e) => setRotateInterval(Number(e.target.value))}
-                                        className="flex-1"
-                                    />
-                                    <span className="text-lg font-bold text-indigo-600 w-10 text-center">
-                                        {rotateInterval || 10}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-gray-400 mt-1">
-                                    ยิ่งหมุนเร็ว ยิ่งปลอดภัย (แนะนำ 10 วินาที)
-                                </p>
-                            </>
-                        ) : (
-                            <p className="text-xs text-orange-500 mt-1">
-                                ⚠️ ปิดการหมุน QR Code: นักเรียนสามารถใช้ QR ตลอดชีพถ่ายรูปเก็บไว้เพื่อเข้าสอบได้ตลอดเวลา
-                            </p>
-                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                            ยิ่งหมุนเร็ว ยิ่งปลอดภัย (แนะนำ 10 วินาที)
+                        </p>
                     </div>
 
                     {/* Security Auto-Suspend */}
@@ -368,11 +363,7 @@ const ExamSession = () => {
                     <p className="text-gray-500 mt-1">{exam?.title}</p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
                         {shuffleQuestions && <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">🔀 สุ่มข้อ</span>}
-                        {rotateInterval > 0 && randomizeQR ? (
-                            <span className="bg-gray-100 px-2 py-0.5 rounded">QR หมุนทุก {rotateInterval}s</span>
-                        ) : (
-                            <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded">QR แบบคงที่</span>
-                        )}
+                        <span className="bg-gray-100 px-2 py-0.5 rounded">QR ทุก {rotateInterval}s</span>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -422,23 +413,16 @@ const ExamSession = () => {
                                 )}
                             </div>
 
-                            {randomizeQR && rotateInterval > 0 ? (
-                                <>
-                                    <div className="mt-4 flex items-center gap-2 text-sm">
-                                        <Clock size={16} className="text-gray-400" />
-                                        <span className="text-gray-500">
-                                            QR ใหม่ใน: <span className={`font-bold ${qrCountdown <= 3 ? 'text-red-500' : 'text-indigo-600'}`}>{qrCountdown}</span> วินาที
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-gray-400 mt-2 text-center">
-                                        QR หมุนทุก {rotateInterval} วินาที • Token หมดอายุ {rotateInterval + 5} วินาที
-                                    </p>
-                                </>
-                            ) : (
-                                <p className="text-sm font-medium text-orange-600 mt-4 text-center bg-orange-50 px-3 py-1 rounded-full">
-                                    ไม่ต้องสุ่ม QR Code โทเค็นเปิดยาว 24 ชั่วโมง
-                                </p>
-                            )}
+                            <div className="mt-4 flex items-center gap-2 text-sm">
+                                <Clock size={16} className="text-gray-400" />
+                                <span className="text-gray-500">
+                                    QR ใหม่ใน: <span className={`font-bold ${qrCountdown <= 3 ? 'text-red-500' : 'text-indigo-600'}`}>{qrCountdown}</span> วินาที
+                                </span>
+                            </div>
+
+                            <p className="text-xs text-gray-400 mt-2 text-center">
+                                QR หมุนทุก {rotateInterval} วินาที • Token หมดอายุ {rotateInterval + 5} วินาที
+                            </p>
                         </>
                     )}
                 </div>

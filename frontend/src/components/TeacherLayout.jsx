@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle } from 'lucide-react';
 
 const TeacherLayout = () => {
     const navigate = useNavigate();
@@ -65,11 +65,6 @@ const TeacherLayout = () => {
             name: 'สร้างข้อสอบ',
             path: '/teacher/exams/create',
             icon: <PlusCircle size={20} />,
-        },
-        {
-            name: 'AI สร้างข้อสอบ',
-            path: '/teacher/ai-generator',
-            icon: <Sparkles size={20} />,
         },
     ];
 

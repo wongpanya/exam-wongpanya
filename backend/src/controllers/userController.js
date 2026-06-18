@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
+const ExamAttempt = require('../models/examAttemptModel');
 const jwt = require('jsonwebtoken');
 
 // Generate JWT Token
@@ -82,98 +83,21 @@ const getStudents = asyncHandler(async (req, res) => {
     res.json(students);
 });
 
-// @desc    Add a student (Teacher)
-// @route   POST /api/users/students
-// @access  Private/Teacher
-const addStudent = asyncHandler(async (req, res) => {
-    const { title, firstName, lastName, phoneNumber, email, password } = req.body;
-
-    const userExists = await User.findOne({ email });
-
-    if (userExists) {
-        res.status(400);
-        throw new Error('มีอีเมลนี้ในระบบแล้ว');
-    }
-
-    const user = await User.create({
-        title,
-        firstName,
-        lastName,
-        phoneNumber,
-        email,
-        password,
-        role: 'student' 
-    });
-
-    if (user) {
-        res.status(201).json({
-            _id: user._id,
-            title: user.title,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            phoneNumber: user.phoneNumber,
-            email: user.email,
-        });
-    } else {
-        res.status(400);
-        throw new Error('ข้อมูลนักเรียนไม่ถูกต้อง');
-    }
-});
-
-// @desc    Update a student
-// @route   PUT /api/users/students/:id
-// @access  Private/Teacher
-const updateStudent = asyncHandler(async (req, res) => {
-    const student = await User.findById(req.params.id);
-
-    if (student) {
-        student.title = req.body.title || student.title;
-        student.firstName = req.body.firstName || student.firstName;
-        student.lastName = req.body.lastName || student.lastName;
-        student.phoneNumber = req.body.phoneNumber || student.phoneNumber;
-        student.email = req.body.email || student.email;
-
-        // Optionally update password if provided
-        if (req.body.password) {
-            student.password = req.body.password;
-        }
-
-        const updatedStudent = await student.save();
-
-        res.json({
-            _id: updatedStudent._id,
-            title: updatedStudent.title,
-            firstName: updatedStudent.firstName,
-            lastName: updatedStudent.lastName,
-            phoneNumber: updatedStudent.phoneNumber,
-            email: updatedStudent.email,
-        });
-    } else {
-        res.status(404);
-        throw new Error('ไม่พบข้อมูลนักเรียน');
-    }
-});
-
-// @desc    Delete a student
-// @route   DELETE /api/users/students/:id
-// @access  Private/Teacher
-const deleteStudent = asyncHandler(async (req, res) => {
-    const student = await User.findById(req.params.id);
-
-    if (student) {
-        await User.deleteOne({ _id: student._id });
-        res.json({ message: 'ลบข้อมูลนักเรียนเรียบร้อยแล้ว' });
-    } else {
-        res.status(404);
-        throw new Error('ไม่พบข้อมูลนักเรียน');
-    }
+// @desc    Get student's exam history
+// @route   GET /api/users/me/history
+// @access  Private
+const getStudentHistory = asyncHandler(async (req, res) => {
+    const attempts = await ExamAttempt.find({ student: req.user._id })
+        .populate('exam', 'title durationMin')
+        .populate('session', 'status startTime endTime')
+        .sort({ createdAt: -1 });
+        
+    res.json(attempts);
 });
 
 module.exports = {
     registerUser,
     authUser,
     getStudents,
-    addStudent,
-    updateStudent,
-    deleteStudent,
+    getStudentHistory,
 };

@@ -1,132 +1,113 @@
 import { useState, useEffect } from 'react';
-import api from '../../config/api';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Clock, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide-react';
+import api from '../../config/api';
+import { ArrowLeft, Clock, CheckCircle, AlertTriangle, XCircle, FileText } from 'lucide-react';
 
 const StudentHistory = () => {
     const navigate = useNavigate();
-    const [attempts, setAttempts] = useState([]);
+    const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
 
     useEffect(() => {
         const fetchHistory = async () => {
             try {
                 const user = JSON.parse(localStorage.getItem('user'));
-                if (!user) {
-                    navigate('/login');
-                    return;
-                }
-                const { data } = await api.get('/exam-sessions/my-history', {
+                const { data } = await api.get('/users/me/history', {
                     headers: { Authorization: `Bearer ${user.token}` }
                 });
-                setAttempts(data);
+                setHistory(data);
             } catch (err) {
-                setError(err.response?.data?.message || 'ไม่สามารถดึงประวัติการสอบได้');
+                console.error('Failed to fetch history:', err);
             } finally {
                 setLoading(false);
             }
         };
 
         fetchHistory();
-    }, [navigate]);
+    }, []);
 
-    const formatDate = (dateString) => {
-        if (!dateString) return '-';
-        return new Date(dateString).toLocaleString('th-TH', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+    const formatDateTime = (ts) => {
+        if (!ts) return '-';
+        const d = new Date(ts);
+        return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) + ' ' +
+            d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-            </div>
-        );
-    }
+    const getStatusBadge = (status) => {
+        switch (status) {
+            case 'submitted':
+                return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold flex items-center gap-1 w-fit"><CheckCircle size={12} /> ส่งแล้ว</span>;
+            case 'suspended':
+                return <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold flex items-center gap-1 w-fit"><XCircle size={12} /> ถูกระงับ</span>;
+            default:
+                return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1 w-fit"><Clock size={12} /> กำลังทำ</span>;
+        }
+    };
+
+    if (loading) return <div className="p-8 text-center text-gray-500">กำลังโหลดประวัติการสอบ...</div>;
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
+            {/* Header */}
+            <div className="flex items-center gap-3">
                 <button
                     onClick={() => navigate('/student')}
                     className="p-2 hover:bg-gray-100 rounded-lg transition"
                 >
                     <ArrowLeft size={20} className="text-gray-600" />
                 </button>
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">ประวัติการสอบ</h1>
-                    <p className="text-gray-500 mt-1">รายการข้อสอบที่คุณได้ทำเสร็จสิ้นแล้ว</p>
-                </div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+                    <FileText className="text-indigo-600" size={28} />
+                    ประวัติการสอบ
+                </h1>
             </div>
 
-            {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <p className="text-red-600">{error}</p>
+            {/* Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">วิชา/ข้อสอบ</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">สถานะ</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">คะแนน</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">เวลาที่ส่ง</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {history.length === 0 ? (
+                                <tr>
+                                    <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                                        ยังไม่มีประวัติการสอบ
+                                    </td>
+                                </tr>
+                            ) : (
+                                history.map((attempt) => (
+                                    <tr key={attempt._id} className="hover:bg-gray-50 transition">
+                                        <td className="px-6 py-4">
+                                            <p className="font-semibold text-gray-900">{attempt.exam?.title || 'ข้อสอบที่ถูกลบ'}</p>
+                                            <p className="text-xs text-gray-500">เวลาทำข้อสอบ: {attempt.exam?.durationMin || '-'} นาที</p>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            {getStatusBadge(attempt.status)}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            {attempt.score !== null ? (
+                                                <span className="font-bold text-gray-900">{attempt.score} <span className="text-gray-400 text-xs font-normal">/ {attempt.totalPoints}</span></span>
+                                            ) : (
+                                                <span className="text-gray-400">-</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            {formatDateTime(attempt.submittedAt || attempt.createdAt)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 </div>
-            )}
-
-            {!loading && attempts.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
-                    <BookOpen className="mx-auto mb-4 text-gray-300" size={48} />
-                    <p className="text-lg font-medium text-gray-900">ยังไม่มีประวัติการสอบ</p>
-                    <p className="text-sm mt-1">คุณยังไม่ได้ทำข้อสอบใดๆ หรือยังทำไม่เสร็จสิ้น</p>
-                    <button 
-                        onClick={() => navigate('/student/join')}
-                        className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
-                    >
-                        เข้าสอบตอนนี้เลย
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {attempts.map((attempt) => (
-                        <div key={attempt._id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between hover:shadow-md transition">
-                            <div>
-                                <div className="flex justify-between items-start gap-4">
-                                    <h3 className="font-bold text-lg text-gray-900 line-clamp-2">
-                                        {attempt.exam?.title || 'ไม่พบข้อมูลข้อสอบ'}
-                                    </h3>
-                                    {attempt.status === 'submitted' ? (
-                                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap flex items-center gap-1">
-                                            <CheckCircle size={12} /> ส่งแล้ว
-                                        </span>
-                                    ) : (
-                                        <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap flex items-center gap-1">
-                                            <AlertTriangle size={12} /> ถูกระงับ
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="text-sm text-gray-500 mt-2 line-clamp-2">
-                                    {attempt.exam?.description}
-                                </p>
-                            </div>
-
-                            <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
-                                <div className="text-sm text-gray-500 flex items-center gap-1.5">
-                                    <Clock size={16} />
-                                    <span>{formatDate(attempt.endedAt || attempt.updatedAt)}</span>
-                                </div>
-                                
-                                <div className="text-right">
-                                    <span className="text-xs text-gray-500 block mb-1">คะแนนที่ได้</span>
-                                    <div className="flex items-baseline gap-1">
-                                        <span className={`text-2xl font-bold ${attempt.score >= (attempt.exam?.passingScore || 0) ? 'text-green-600' : 'text-red-500'}`}>
-                                            {attempt.score}
-                                        </span>
-                                        <span className="text-gray-400 font-medium">/{attempt.exam?.totalPoints || '-'}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
+            </div>
         </div>
     );
 };

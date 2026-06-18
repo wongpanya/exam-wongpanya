@@ -12,9 +12,10 @@ const createExam = asyncHandler(async (req, res) => {
         throw new Error('Please provide title, duration, and at least one question');
     }
 
-    // Auto-generate examId
-    const count = await Exam.countDocuments();
-    const examId = `EXAM${String(count + 1).padStart(3, '0')}`;
+    // Auto-generate examId securely to prevent race conditions
+    const lastExam = await Exam.findOne({}, { examId: 1 }).sort({ createdAt: -1 });
+    const lastNum = lastExam ? parseInt(lastExam.examId.replace('EXAM', ''), 10) : 0;
+    const examId = `EXAM${String(lastNum + 1).padStart(3, '0')}`;
 
     // Auto-generate questionIds if not provided
     const processedQuestions = questions.map((q, index) => ({

@@ -51,7 +51,7 @@ const ExamHistory = () => {
         if (!ok) return;
 
         try {
-            await api.delete(`/exam-sessions/${sessionId}`, getConfig());
+            await api.delete(`/exam-sessions/${sessionId}`);
             setHistory(prev => prev.filter(s => s._id !== sessionId));
         } catch (err) {
             await showAlert({

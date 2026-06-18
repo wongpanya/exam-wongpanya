@@ -1,20 +1,51 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const http = require("http");
+const mongoose = require("mongoose");
+const helmet = require("helmet");
+const morgan = require("morgan");
+const compression = require("compression");
 const connectDB = require("./config/db");
 
 // Load env vars
 dotenv.config();
 
+// Environment validation
+if (!process.env.MONGODB_URL || !process.env.JWT_SECRET) {
+    console.error("FATAL ERROR: MONGODB_URL and JWT_SECRET are required.");
+    process.exit(1);
+}
+
 // Connect to database
 connectDB();
 
 const app = express();
+app.set('trust proxy', 1); // ✅ REQUIRED for Rate Limiter behind Vercel/DigitalOcean Proxy
+
+const server = http.createServer(app);
+
+// Socket.io initialization (Phase 2)
+const { initSocket } = require('./config/socket');
+const io = initSocket(server);
+
+// Security Headers
+app.use(helmet());
+
+// Logging
+if (process.env.NODE_ENV === "development") {
+    app.use(morgan("dev"));
+} else {
+    app.use(morgan("combined"));
+}
+
+// Compression
+app.use(compression());
 
 // ✅ CORS (แนะนำให้ fix origin ตอน production)
 app.use(
     cors({
-        origin: process.env.CORS_ORIGIN || true,
+        origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : true,
         credentials: true,
     })
 );
@@ -23,7 +54,11 @@ app.use(express.json({ limit: "2mb" }));
 
 // ✅ Health check for DigitalOcean
 app.get("/api/health", (req, res) => {
-    res.json({ ok: true, time: new Date().toISOString() });
+    res.json({ 
+        ok: true, 
+        time: new Date().toISOString(),
+        dbConnection: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    });
 });
 
 // Root
@@ -35,26 +70,14 @@ app.get("/", (req, res) => {
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/exams", require("./routes/examRoutes"));
 app.use("/api/exam-sessions", require("./routes/examSessionRoutes"));
-app.use("/api/ai-generator", require("./routes/aiGeneratorRoutes"));
 
 // Error middleware
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 app.use(notFound);
 app.use(errorHandler);
 
-const http = require("http");
-const socket = require("./utils/socket");
-
 // ✅ IMPORTANT: DO injects PORT (usually 8080)
 const PORT = process.env.PORT || 5001;
-
-const server = http.createServer(app);
-
-// Initialize Socket.io
-socket.init(server, {
-    origin: process.env.CORS_ORIGIN || true,
-    credentials: true,
-});
 
 // ✅ Bind to 0.0.0.0 for container/host platforms
 server.listen(PORT, "0.0.0.0", () => {
@@ -62,3 +85,18 @@ server.listen(PORT, "0.0.0.0", () => {
         `Server running in ${process.env.NODE_ENV || "development"} on port ${PORT}`
     );
 });
+
+// Graceful Shutdown
+const gracefulShutdown = (signal) => {
+    console.log(`\n${signal} received. Shutting down gracefully...`);
+    server.close(() => {
+        mongoose.connection.close(false).then(() => {
+            console.log('MongoDB connection closed.');
+            process.exit(0);
+        });
+    });
+    setTimeout(() => { process.exit(1); }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

@@ -27,7 +27,7 @@ const StudentHome = () => {
                     </div>
                 </button>
 
-                <button
+                <button 
                     onClick={() => navigate('/student/history')}
                     className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md hover:border-indigo-200 transition text-left"
                 >
@@ -36,8 +36,8 @@ const StudentHome = () => {
                             <BookOpen className="text-gray-600" size={24} />
                         </div>
                         <div>
-                            <h3 className="font-semibold text-gray-900">ประวัติการสอบ</h3>
-                            <p className="text-sm text-gray-500 mt-0.5">ดูคะแนนและข้อสอบที่ทำเสร็จแล้ว</p>
+                            <h3 className="font-semibold text-gray-700">ประวัติการสอบ</h3>
+                            <p className="text-sm text-gray-500 mt-0.5">ดูผลคะแนนและประวัติการสอบที่ผ่านมา</p>
                         </div>
                     </div>
                 </button>

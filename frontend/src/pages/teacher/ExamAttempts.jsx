@@ -14,6 +14,10 @@ const ExamAttempts = () => {
     const [examDetails, setExamDetails] = useState(null);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(20);
 
     const getConfig = () => {
         const user = JSON.parse(localStorage.getItem('user'));
@@ -26,13 +30,13 @@ const ExamAttempts = () => {
         const fetchData = async () => {
             try {
                 // Fetch exam details for item analysis
-                const examRes = await api.get(`/exams/${id}`, getConfig());
+                const examRes = await api.get(`/exams/${id}`);
                 setExamDetails(examRes.data);
 
                 const url = sessionId
                     ? `/exam-sessions/${id}/attempts?sessionId=${sessionId}`
                     : `/exam-sessions/${id}/attempts`;
-                const { data } = await api.get(url, getConfig());
+                const { data } = await api.get(url);
                 // Sort by submittedAt desc, then startedAt desc
                 const sorted = data.sort((a, b) => {
                     if (a.submittedAt && b.submittedAt) return new Date(b.submittedAt) - new Date(a.submittedAt);
@@ -70,7 +74,7 @@ const ExamAttempts = () => {
         if (attempts.length === 0) return;
 
         // Define base CSV headers
-        const baseHeaders = ['ชื่อ', 'นามสกุล', 'อีเมล', 'สถานะ', 'คะแนน', 'คะแนนเต็ม', 'เวลาที่ใช้', 'ส่งเมื่อ'];
+        const baseHeaders = ['ชื่อ', 'นามสกุล', 'อีเมล', 'สถานะ', 'คะแนน', 'คะแนนเต็ม', 'จำนวนข้อที่ตอบ', 'เวลาที่ใช้', 'ส่งเมื่อ'];
         
         // Add question headers if exam details are available
         const questionHeaders = examDetails?.questions?.map((q, i) => `ข้อ ${i + 1} (${q.points} คะแนน)`) || [];
@@ -81,6 +85,7 @@ const ExamAttempts = () => {
             const statusText = a.status === 'submitted' ? 'ส่งแล้ว' : a.status === 'suspended' ? 'ถูกระงับ' : 'กำลังทำ';
             const duration = getDuration(a.startedAt, a.submittedAt);
             const submittedAt = a.submittedAt ? new Date(a.submittedAt).toLocaleString('th-TH') : '-';
+            const answeredCount = a.answers ? a.answers.filter(ans => ans.selectedAnswer && ans.selectedAnswer.trim() !== '').length : 0;
             
             const baseRow = [
                 `"${a.student.firstName}"`,
@@ -89,6 +94,7 @@ const ExamAttempts = () => {
                 `"${statusText}"`,
                 a.score !== null ? a.score : '-',
                 a.totalPoints,
+                answeredCount,
                 `"${duration}"`,
                 `"${submittedAt}"`
             ];
@@ -104,7 +110,20 @@ const ExamAttempts = () => {
         });
 
         // Combine headers and rows
-        const csvContent = [headers.join(','), ...rows].join('\n');
+        let csvContent = [headers.join(','), ...rows].join('\n');
+
+        // Add summary rows at the bottom (Max, Min, Avg)
+        const validScores = attempts.filter(a => a.score !== null).map(a => a.score);
+        if (validScores.length > 0) {
+            const maxScore = Math.max(...validScores);
+            const minScore = Math.min(...validScores);
+            const avgScore = (validScores.reduce((sum, score) => sum + score, 0) / validScores.length).toFixed(2);
+            
+            csvContent += `\n\n,,,,"สรุปผลคะแนน"\n`;
+            csvContent += `,,,,"คะแนนสูงสุด",${maxScore}\n`;
+            csvContent += `,,,,"คะแนนต่ำสุด",${minScore}\n`;
+            csvContent += `,,,,"คะแนนเฉลี่ย",${avgScore}\n`;
+        }
 
         // Add BOM for UTF-8 encoding (helps Excel read Thai characters correctly)
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
@@ -125,6 +144,16 @@ const ExamAttempts = () => {
         a.student.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         a.student.email.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    // Reset page when search changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm]);
+
+    // Pagination logic
+    const totalPages = Math.ceil(filteredAttempts.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const currentAttempts = filteredAttempts.slice(startIndex, startIndex + itemsPerPage);
 
     const getStatusBadge = (status) => {
         switch (status) {
@@ -179,20 +208,36 @@ const ExamAttempts = () => {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                    <p className="text-sm text-gray-500">นักเรียนทั้งหมด</p>
-                    <p className="text-2xl font-bold text-gray-900">{attempts.length} คน</p>
+                    <p className="text-sm text-gray-500">นักเรียน</p>
+                    <p className="text-2xl font-bold text-gray-900">{attempts.length}</p>
                 </div>
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                     <p className="text-sm text-gray-500">ส่งแล้ว</p>
-                    <p className="text-2xl font-bold text-green-600">{attempts.filter(a => a.status === 'submitted').length} คน</p>
+                    <p className="text-2xl font-bold text-green-600">{attempts.filter(a => a.status === 'submitted').length}</p>
                 </div>
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                     <p className="text-sm text-gray-500">คะแนนเฉลี่ย</p>
                     <p className="text-2xl font-bold text-indigo-600">
-                        {attempts.length > 0
-                            ? (attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length).toFixed(1)
+                        {attempts.filter(a => a.score !== null).length > 0
+                            ? (attempts.filter(a => a.score !== null).reduce((sum, a) => sum + a.score, 0) / attempts.filter(a => a.score !== null).length).toFixed(1)
+                            : 0}
+                    </p>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <p className="text-sm text-gray-500">คะแนนสูงสุด (Max)</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                        {attempts.filter(a => a.score !== null).length > 0
+                            ? Math.max(...attempts.filter(a => a.score !== null).map(a => a.score))
+                            : 0}
+                    </p>
+                </div>
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <p className="text-sm text-gray-500">คะแนนต่ำสุด (Min)</p>
+                    <p className="text-2xl font-bold text-red-600">
+                        {attempts.filter(a => a.score !== null).length > 0
+                            ? Math.min(...attempts.filter(a => a.score !== null).map(a => a.score))
                             : 0}
                     </p>
                 </div>
@@ -206,18 +251,19 @@ const ExamAttempts = () => {
                             <tr>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">นักเรียน</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">สถานะ</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ทำไปแล้ว</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">คะแนน</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">เวลาที่ใช้</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ส่งเมื่อ</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {filteredAttempts.length === 0 ? (
+                            {currentAttempts.length === 0 ? (
                                 <tr>
-                                    <td colSpan="5" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
+                                    <td colSpan="6" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
                                 </tr>
                             ) : (
-                                filteredAttempts.map((attempt) => (
+                                currentAttempts.map((attempt) => (
                                     <tr key={attempt._id} className="hover:bg-gray-50 transition">
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
@@ -232,6 +278,12 @@ const ExamAttempts = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             {getStatusBadge(attempt.status)}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className="text-sm font-medium text-gray-900">
+                                                {attempt.answers ? attempt.answers.filter(ans => ans.selectedAnswer && ans.selectedAnswer.trim() !== '').length : 0}
+                                                <span className="text-gray-400 text-xs font-normal"> / {examDetails?.questions?.length || 0}</span>
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             {attempt.score !== null ? (
@@ -252,6 +304,49 @@ const ExamAttempts = () => {
                         </tbody>
                     </table>
                 </div>
+                
+                {/* Pagination Controls */}
+                {filteredAttempts.length > 0 && (
+                    <div className="bg-white px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <span>แสดง</span>
+                            <select 
+                                value={itemsPerPage} 
+                                onChange={(e) => {
+                                    setItemsPerPage(Number(e.target.value));
+                                    setCurrentPage(1);
+                                }}
+                                className="border border-gray-300 rounded-md py-1 px-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            >
+                                <option value={10}>10</option>
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                            </select>
+                            <span>รายการ จากทั้งหมด {filteredAttempts.length} รายการ</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 hover:bg-gray-50"
+                            >
+                                ก่อนหน้า
+                            </button>
+                            <span className="text-sm text-gray-600">
+                                หน้า {currentPage} / {totalPages}
+                            </span>
+                            <button
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                                className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 hover:bg-gray-50"
+                            >
+                                ถัดไป
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

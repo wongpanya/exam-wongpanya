@@ -54,8 +54,8 @@ const ExamDetail = () => {
         if (!ok) return;
 
         try {
-            await api.delete(`/exam-sessions/${sessionId}`, getConfig());
-            const historyRes = await api.get(`/exam-sessions/${id}/history`, getConfig());
+            await api.delete(`/exam-sessions/${sessionId}`);
+            const historyRes = await api.get(`/exam-sessions/${id}/history`);
             setHistoryPreview(historyRes.data.slice(0, 3));
         } catch (err) {
             await showAlert({

@@ -4,11 +4,10 @@ import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
 import useAntiCheat from '../../hooks/useAntiCheat';
 import { Clock, Send, AlertTriangle, CheckCircle, Shield, Save, Lock, Wifi, WifiOff } from 'lucide-react';
-import { io } from 'socket.io-client';
 
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
-const DEBOUNCE_SAVE_MS = 5000;
-const STATUS_CHECK_INTERVAL = 45000; // 45 seconds for suspension check fallback
+const DEBOUNCE_SAVE_MS = 2000;
+const STATUS_CHECK_INTERVAL = 15000; // 15 seconds for suspension check (optimized from 5s)
 
 const TakeExam = () => {
     const { examId } = useParams();
@@ -99,8 +98,7 @@ const TakeExam = () => {
             // Auto-save now returns status
             const { data } = await api.post(
                 `/exam-sessions/${examId}/auto-save`,
-                { answers: answerArray },
-                getConfig()
+                { answers: answerArray }
             );
 
             setLastSaved(new Date());
@@ -117,24 +115,7 @@ const TakeExam = () => {
         }
     }, [examId]);
 
-    // Status Check Polling
-    const checkStatus = useCallback(async () => {
-        if (!isOnline) return;
-        try {
-            const { data } = await api.get(`/exam-sessions/${examId}/my-status`, getConfig());
-            if (data.status === 'suspended') {
-                setSuspended(true);
-            } else if (data.status === 'in-progress' && suspended) {
-                setSuspended(false); // Unsuspend if status changed back
-            } else if (data.status === 'submitted' && !submitted) {
-                setSubmitted(true);
-                // If externally submitted (e.g. by time limit on server), we should fetch result
-                // For now just show submitted state, result might be missing but we can fetch it
-            }
-        } catch (err) {
-            console.error('Status check failed', err);
-        }
-    }, [examId, suspended, submitted, isOnline]);
+
 
     useEffect(() => {
         const handleOnline = () => setIsOnline(true);
@@ -149,43 +130,10 @@ const TakeExam = () => {
         };
     }, []);
 
-    // WebSocket Connection for Real-time Suspension
-    useEffect(() => {
-        const userStr = localStorage.getItem('user');
-        if (!userStr) return;
-        
-        let user;
-        try {
-            user = JSON.parse(userStr);
-        } catch (e) { return; }
-
-        const baseUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : window.location.origin;
-        
-        const socket = io(baseUrl, {
-            withCredentials: true
-        });
-
-        socket.on('connect', () => {
-            socket.emit('join_student_room', user._id);
-        });
-
-        socket.on('suspension_update', (data) => {
-            if (data.suspended) {
-                setSuspended(true);
-            } else {
-                setSuspended(false);
-            }
-        });
-
-        return () => {
-            socket.disconnect();
-        };
-    }, []);
-
     useEffect(() => {
         const fetchAttempt = async () => {
             try {
-                const { data } = await api.get(`/exam-sessions/${examId}/attempt`, getConfig());
+                const { data } = await api.get(`/exam-sessions/${examId}/attempt`);
                 setExam(data.exam);
                 setAttempt(data.attempt);
                 setSessionInfo(data.session);
@@ -276,18 +224,7 @@ const TakeExam = () => {
         };
     }, [submitted, suspended, autoSaveToServer]);
 
-    // Status Check Interval
-    useEffect(() => {
-        if (submitted) return;
 
-        statusCheckTimerRef.current = setInterval(() => {
-            checkStatus();
-        }, STATUS_CHECK_INTERVAL);
-
-        return () => {
-            if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
-        };
-    }, [submitted, checkStatus]);
 
     // Save to localStorage on beforeunload
     useEffect(() => {
@@ -354,8 +291,7 @@ const TakeExam = () => {
 
             const { data } = await api.post(
                 `/exam-sessions/${examId}/submit`,
-                { answers: answerArray },
-                getConfig()
+                { answers: answerArray }
             );
 
             setSubmitted(true);
@@ -374,6 +310,30 @@ const TakeExam = () => {
             setSubmitting(false);
         }
     }, [answers, exam, examId, submitting, submitted, suspended, showAlert, showConfirm]);
+
+    // Lightweight HTTP polling for suspend/session-end status (replaces Socket.io to save RAM)
+    useEffect(() => {
+        if (!sessionInfo || submitted) return;
+
+        const checkStatus = async () => {
+            try {
+                const { data } = await api.get(`/exam-sessions/${examId}/my-status`);
+                if (data.status === 'suspended') setSuspended(true);
+                else if (data.status === 'in_progress') setSuspended(false);
+                else if (data.status === 'submitted' || data.sessionEnded) {
+                    handleSubmit(true);
+                }
+            } catch (err) {
+                // Silently ignore — next poll will retry
+            }
+        };
+
+        statusCheckTimerRef.current = setInterval(checkStatus, STATUS_CHECK_INTERVAL);
+
+        return () => {
+            if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
+        };
+    }, [sessionInfo, submitted, examId, handleSubmit]);
 
     if (loading) {
         return (

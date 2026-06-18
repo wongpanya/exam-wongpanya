@@ -6,10 +6,17 @@ const CheatingLog = require('../models/cheatingLogModel');
 const User = require('../models/userModel');
 const { generateQRToken, parseQRToken, verifyQRToken } = require('../utils/qrToken');
 const cheatTracker = require('../utils/cheatTracker');
-const cache = require('../utils/cache');
-const socket = require('../utils/socket');
+const { getIO } = require('../config/socket');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
+
+const safeEmit = (room, event, data) => {
+    try {
+        getIO().to(room).emit(event, data);
+    } catch (e) {
+        console.warn('Socket emit failed:', e.message);
+    }
+};
 
 // @desc    Start an exam session
 // @route   POST /api/exam-sessions/:examId/start
@@ -44,7 +51,7 @@ const startExam = asyncHandler(async (req, res) => {
         createdBy: req.user._id,
         status: 'active',
         startedAt: Date.now(),
-        qrRotateInterval: qrRotateInterval !== undefined ? Number(qrRotateInterval) : 10,
+        qrRotateInterval: qrRotateInterval || 10,
         shuffleQuestions: shuffleQuestions || false,
         cheatConfig: cheatConfig || {},
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
@@ -85,6 +92,8 @@ const stopExam = asyncHandler(async (req, res) => {
         { status: 'submitted', submittedAt: Date.now() }
     );
 
+    safeEmit(`session:${session._id}`, 'session-ended', {});
+
     res.json(session);
 });
 
@@ -117,9 +126,8 @@ const getQRToken = asyncHandler(async (req, res) => {
         throw new Error('No active session');
     }
 
-    // Generate a short-lived token signed with secret, or 24h if static
-    const expiry = session.qrRotateInterval > 0 ? session.qrRotateInterval + 10 : 86400;
-    const token = generateQRToken(req.params.examId, QR_SECRET, expiry);
+    // Generate a short-lived token signed with secret
+    const token = generateQRToken(req.params.examId, QR_SECRET);
 
     res.json({ token });
 });
@@ -204,6 +212,14 @@ const joinExam = asyncHandler(async (req, res) => {
         await ExamSession.findByIdAndUpdate(session._id, { $inc: { studentCount: 1 } });
     }
 
+    const studentInfo = await User.findById(req.user._id).select('firstName lastName email');
+    safeEmit(`teacher:${session._id}`, 'student-joined', {
+        _id: attempt._id,
+        student: studentInfo,
+        status: 'in-progress',
+        score: null,
+    });
+
     res.status(201).json({
         attemptId: attempt._id,
         message: 'Joined successfully'
@@ -274,70 +290,51 @@ const getAttempt = asyncHandler(async (req, res) => {
 const autoSave = asyncHandler(async (req, res) => {
     const { answers } = req.body; // Array of { questionId, answer }
 
-    // 1. Use cache to get session and exam config to avoid 2 DB queries
-    const cacheKey = `session_exam_${req.params.examId}`;
-    let sessionData = cache.get(cacheKey);
+    const session = await ExamSession.findOne({
+        exam: req.params.examId,
+    }).sort({ createdAt: -1 });
 
-    if (!sessionData) {
-        const session = await ExamSession.findOne({
-            exam: req.params.examId,
-        }).sort({ createdAt: -1 });
-
-        if (!session) {
-            res.status(404);
-            throw new Error('Session not found');
-        }
-
-        const examData = await Exam.findById(session.exam);
-        sessionData = {
-            _id: session._id,
-            startedAt: session.startedAt,
-            durationMin: examData.durationMin
-        };
-        cache.set(cacheKey, sessionData);
+    if (!session) {
+        res.status(404);
+        throw new Error('Session not found');
     }
 
-    // 2. Validate Time Limit
-    const startTime = new Date(sessionData.startedAt).getTime();
-    const durationMs = sessionData.durationMin * 60 * 1000;
+    const attempt = await ExamAttempt.findOne({
+        session: session._id,
+        student: req.user._id,
+    });
+
+    if (!attempt) {
+        res.status(404);
+        throw new Error('Attempt not found');
+    }
+
+    if (attempt.status === 'submitted') {
+        res.status(400);
+        throw new Error('Exam already submitted');
+    }
+
+    if (attempt.status === 'suspended') {
+        res.status(403);
+        throw new Error('Cannot save: Exam attempt is suspended');
+    }
+
+    const examData = await Exam.findById(session.exam);
+    const startTime = new Date(session.startedAt).getTime();
+    const durationMs = examData.durationMin * 60 * 1000;
     if (Date.now() > startTime + durationMs + 30000) {
         res.status(400);
         throw new Error('Exam time limit exceeded');
     }
 
-    // 3. High-Performance Atomic Update
-    // Matches attempt only if it exists and is not submitted/suspended
-    const updateResult = await ExamAttempt.updateOne(
-        {
-            session: sessionData._id,
-            student: req.user._id,
-            status: { $nin: ['submitted', 'suspended'] }
-        },
-        { $set: { answers } }
-    );
+    // Update answers
+    // Merge logic: update existing answer or push new
+    // We can just replace the array if we send full state, or merge carefully
+    // Assuming frontend sends full state of answered questions
+    attempt.answers = answers;
+    await attempt.save();
 
-    // 4. Fallback checking if update failed
-    if (updateResult.matchedCount === 0) {
-        const attempt = await ExamAttempt.findOne({
-            session: sessionData._id,
-            student: req.user._id,
-        });
-
-        if (!attempt) {
-            res.status(404);
-            throw new Error('Attempt not found');
-        }
-        if (attempt.status === 'submitted') {
-            res.status(400);
-            throw new Error('Exam already submitted');
-        }
-        if (attempt.status === 'suspended') {
-            res.status(403);
-            throw new Error('Cannot save: Exam attempt is suspended');
-        }
-    }
-
-    res.json({ message: 'Saved', saved: true, status: 'in-progress' });
+    res.json({ message: 'Saved', saved: true, status: attempt.status });
 });
 
 // @desc    Submit exam
@@ -388,13 +385,12 @@ const submitExam = asyncHandler(async (req, res) => {
     attempt.status = 'submitted';
     attempt.submittedAt = Date.now();
 
-    // Grade immediately
-    const exam = await Exam.findById(session.exam);
+    // Grade immediately using already fetched examData
     let score = 0;
 
     // Create map of correct answers
     const correctMap = new Map();
-    exam.questions.forEach(q => {
+    examData.questions.forEach(q => {
         correctMap.set(q.questionId, { correct: q.correctAnswer, points: q.points || 1 });
     });
 
@@ -415,6 +411,11 @@ const submitExam = asyncHandler(async (req, res) => {
 
     // Update session stats
     await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: 1 } });
+
+    safeEmit(`teacher:${session._id}`, 'student-submitted', {
+        studentId: req.user._id.toString(),
+        score: score,
+    });
 
     res.json({ message: 'Submitted successfully', score, totalPoints: attempt.totalPoints });
 });
@@ -483,15 +484,17 @@ const logCheatEvent = asyncHandler(async (req, res) => {
             );
             if (updatedAttempt) {
                 suspendStatus = 'suspended';
-                try {
-                    const io = socket.getIO();
-                    io.to(`student_${req.user._id}`).emit('suspension_update', { suspended: true });
-                } catch (e) {
-                    console.error('Socket error on auto-suspend:', e.message);
-                }
+                safeEmit(`session:${session._id}`, 'student-suspended', { studentId: req.user._id.toString() });
             }
         }
     }
+
+    const studentInfo = await User.findById(req.user._id).select('firstName lastName email');
+    safeEmit(`teacher:${session._id}`, 'cheat-event', {
+        student: studentInfo,
+        eventType,
+        detail,
+    });
 
     res.status(201).json({ ...log.toObject(), suspendStatus });
 });
@@ -583,7 +586,8 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         summary,
         byStudent: byStudentWithStatus,
         totalEvents: logs.length,
-        sessionStatus: session.status, // Add status to allow suspension if active
+        sessionStatus: session.status,
+        session: session._id,
     });
 });
 
@@ -695,16 +699,15 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
             { session: session._id, student: req.params.studentId },
             { $set: { isResolved: true } }
         );
+        
+        safeEmit(`session:${session._id}`, 'student-unsuspended', { studentId: req.params.studentId });
+    }
+
+    if (suspend && attempt.status === 'suspended') {
+        safeEmit(`session:${session._id}`, 'student-suspended', { studentId: req.params.studentId });
     }
 
     await attempt.save();
-
-    try {
-        const io = socket.getIO();
-        io.to(`student_${req.params.studentId}`).emit('suspension_update', { suspended });
-    } catch (e) {
-        console.error('Socket error on manual suspend toggle:', e.message);
-    }
 
     res.json({
         success: true,
@@ -717,31 +720,44 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
 // @route   GET /api/exam-sessions/:examId/history
 // @access  Private/Teacher
 const getExamHistory = asyncHandler(async (req, res) => {
-    const sessions = await ExamSession.find({
-        exam: req.params.examId,
-    }).sort({ startedAt: -1 }); // Newest first
+    const sessions = await ExamSession.find({ exam: req.params.examId }).sort({ startedAt: -1 });
+    if (!sessions.length) return res.json([]);
+    
+    const sessionIds = sessions.map(s => s._id);
 
-    // Calculate stats for each session
-    const sessionsWithStats = await Promise.all(sessions.map(async (session) => {
-        const attempts = await ExamAttempt.find({ session: session._id });
-        const cheatCount = await CheatingLog.countDocuments({ session: session._id });
+    // Batch queries instead of N+1
+    const [attemptStats, cheatStats] = await Promise.all([
+        ExamAttempt.aggregate([
+            { $match: { session: { $in: sessionIds } } },
+            { $group: {
+                _id: '$session',
+                total: { $sum: 1 },
+                submitted: { $sum: { $cond: [{ $eq: ['$status', 'submitted'] }, 1, 0] } },
+                totalScore: { $sum: { $cond: [{ $eq: ['$status', 'submitted'] }, { $ifNull: ['$score', 0] }, 0] } },
+                maxPoints: { $first: '$totalPoints' },
+            }},
+        ]),
+        CheatingLog.aggregate([
+            { $match: { session: { $in: sessionIds } } },
+            { $group: { _id: '$session', count: { $sum: 1 } } },
+        ]),
+    ]);
 
-        const submitted = attempts.filter(a => a.status === 'submitted');
-        const totalScore = submitted.reduce((sum, a) => sum + (a.score || 0), 0);
-        const avgScore = submitted.length > 0 ? (totalScore / submitted.length).toFixed(1) : 0;
+    const attemptMap = new Map(attemptStats.map(a => [a._id.toString(), a]));
+    const cheatMap = new Map(cheatStats.map(c => [c._id.toString(), c.count]));
 
-        // Calculate max score (from one attempts points)
-        const maxPoints = attempts.length > 0 ? attempts[0].totalPoints : 0;
-        const avgPercent = maxPoints > 0 ? ((avgScore / maxPoints) * 100).toFixed(0) : 0;
-
+    const sessionsWithStats = sessions.map(session => {
+        const stats = attemptMap.get(session._id.toString()) || { total: 0, submitted: 0, totalScore: 0, maxPoints: 0 };
+        const avgScore = stats.submitted > 0 ? (stats.totalScore / stats.submitted).toFixed(1) : 0;
+        const avgPercent = stats.maxPoints > 0 ? ((avgScore / stats.maxPoints) * 100).toFixed(0) : 0;
         return {
             ...session.toObject(),
-            studentCount: attempts.length,
-            submittedCount: submitted.length,
+            studentCount: stats.total,
+            submittedCount: stats.submitted,
             avgScore: avgPercent,
-            cheatEvents: cheatCount,
+            cheatEvents: cheatMap.get(session._id.toString()) || 0,
         };
-    }));
+    });
 
     res.json(sessionsWithStats);
 });
@@ -904,20 +920,6 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
     res.status(201).json({ inserted: docs.length, suspendStatus });
 });
 
-// @desc    Get student's own exam history
-// @route   GET /api/exam-sessions/my-history
-// @access  Private/Student
-const getMyHistory = asyncHandler(async (req, res) => {
-    const attempts = await ExamAttempt.find({
-        student: req.user._id,
-        status: { $in: ['submitted', 'suspended'] }
-    })
-    .populate('exam', 'title description durationMin totalPoints passingScore')
-    .sort({ endedAt: -1, updatedAt: -1 });
-
-    res.json(attempts);
-});
-
 module.exports = {
     startExam,
     stopExam,
@@ -936,5 +938,4 @@ module.exports = {
     getSessionAttempts,
     getMyAttemptStatus,
     deleteSession,
-    getMyHistory,
 };

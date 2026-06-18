@@ -19,6 +19,7 @@ const Register = () => {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [loading, setLoading] = useState(false);
 
     const { title, firstName, lastName, phoneNumber, email, password, confirmPassword } = formData;
 
@@ -45,6 +46,7 @@ const Register = () => {
         }
 
         try {
+            setLoading(true);
             const response = await api.post('/users/register', {
                 title,
                 firstName,
@@ -61,6 +63,8 @@ const Register = () => {
             }
         } catch (err) {
             setError(err.response?.data?.message || 'การสมัครสมาชิก ล้มเหลว');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -207,9 +211,10 @@ const Register = () => {
                     <div>
                         <button
                             type="submit"
-                            className="group relative flex w-full justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            disabled={loading}
+                            className={`group relative flex w-full justify-center rounded-md border border-transparent py-2 px-4 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                         >
-                            สมัครสมาชิก
+                            {loading ? 'กำลังลงทะเบียน...' : 'สมัครสมาชิก'}
                         </button>
                     </div>
                 </form>

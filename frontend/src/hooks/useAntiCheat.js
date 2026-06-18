@@ -61,8 +61,7 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
             // Send all events as a single batch request
             const { data } = await api.post(
                 `/exam-sessions/${examId}/cheat-log-batch`,
-                { events },
-                getConfig()
+                { events }
             );
 
             if (data.suspendStatus === 'suspended' && onSuspendRef.current) {

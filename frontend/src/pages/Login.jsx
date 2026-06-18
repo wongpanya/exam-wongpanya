@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import api from '../config/api';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 const Login = () => {
     const navigate = useNavigate();
@@ -117,9 +117,9 @@ const Login = () => {
 
                     <div className="text-center text-sm">
                         <span className="text-gray-600">ยังไม่มีบัญชี? </span>
-                        <a href="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+                        <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
                             สมัครสมาชิก
-                        </a>
+                        </Link>
                     </div>
                 </form>
             </div>
