@@ -244,9 +244,9 @@ const JoinExam = () => {
                 {status === 'scanning' && (
                     <div className="mt-4 text-center w-full">
                         <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2 mb-3 text-xs text-blue-600 space-y-0.5">
-                            <p>📸 เข้าใกล้ QR ประมาณ 20–40 ซม.</p>
-                            <p>💡 เพิ่มความสว่างหน้าจอ / ลดแสงสะท้อน</p>
-                            <p>📐 ถือตรง ๆ อย่าเอียง</p>
+                            <p>เข้าใกล้ QR ประมาณ 20–40 ซม.</p>
+                            <p>เพิ่มความสว่างหน้าจอ / ลดแสงสะท้อน</p>
+                            <p>ถือตรง ๆ อย่าเอียง</p>
                         </div>
                         <p className="text-sm text-gray-500 animate-pulse mb-3">กำลังค้นหา QR Code...</p>
                         <div className="flex items-center justify-center gap-3">
