@@ -5,6 +5,8 @@ import { Search, Pencil, KeyRound, Trash2, X, Save } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 import { useToast } from '../../components/ToastProvider';
 
+const KNOWN_TITLES = ['นาย', 'นาง', 'นางสาว'];
+
 const StudentList = () => {
     const navigate = useNavigate();
     const { showConfirm } = useDialog();
@@ -22,6 +24,7 @@ const StudentList = () => {
     // Edit modal state
     const [editModal, setEditModal] = useState(null); // { student, saving }
     const [editForm, setEditForm] = useState({ title: '', firstName: '', lastName: '', phoneNumber: '', email: '' });
+    const [editCustomTitle, setEditCustomTitle] = useState('');
 
     // Reset password modal state
     const [resetPwModal, setResetPwModal] = useState(null); // { student, saving }
@@ -74,29 +77,47 @@ const StudentList = () => {
 
     // Edit handlers
     const openEditModal = (student) => {
+        const isCustom = !KNOWN_TITLES.includes(student.title);
         setEditForm({
-            title: student.title,
+            title: isCustom ? 'อื่น ๆ' : student.title,
             firstName: student.firstName,
             lastName: student.lastName,
             phoneNumber: student.phoneNumber,
             email: student.email,
         });
+        setEditCustomTitle(isCustom ? student.title : '');
         setEditModal({ student, saving: false });
     };
 
     const closeEditModal = () => {
         setEditModal(null);
         setEditForm({ title: '', firstName: '', lastName: '', phoneNumber: '', email: '' });
+        setEditCustomTitle('');
+    };
+
+    const handleTitleChange = (e) => {
+        const val = e.target.value;
+        setEditForm(prev => ({ ...prev, title: val }));
+        if (val !== 'อื่น ๆ') {
+            setEditCustomTitle('');
+        }
     };
 
     const handleEditSubmit = async (e) => {
         e.preventDefault();
         if (!editModal) return;
 
+        const finalTitle = editForm.title === 'อื่น ๆ' && editCustomTitle.trim()
+            ? editCustomTitle.trim()
+            : editForm.title;
+
         setEditModal(prev => ({ ...prev, saving: true }));
         try {
             const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-            const { data } = await api.put(`/users/${editModal.student._id}`, editForm, {
+            const { data } = await api.put(`/users/${editModal.student._id}`, {
+                ...editForm,
+                title: finalTitle,
+            }, {
                 headers: { Authorization: `Bearer ${storedUser.token}` },
             });
 
@@ -151,7 +172,7 @@ const StudentList = () => {
     const handleDelete = async (student) => {
         const confirmed = await showConfirm({
             title: 'ลบผู้ใช้',
-            message: `คุณแน่ใจหรือไม่ที่จะลบ\n${student.title}${student.firstName} ${student.lastName}\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`,
+            message: `คุณแน่ใจหรือไม่ที่จะลบ ${student.title}${student.firstName} ${student.lastName}\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`,
             confirmText: 'ลบ',
             cancelText: 'ยกเลิก',
             variant: 'danger',
@@ -371,14 +392,25 @@ const StudentList = () => {
                                 <label className="block text-sm font-medium text-gray-700 mb-1">คำนำหน้า</label>
                                 <select
                                     value={editForm.title}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                                    onChange={handleTitleChange}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                                     required
                                 >
                                     <option value="นาย">นาย</option>
                                     <option value="นาง">นาง</option>
                                     <option value="นางสาว">นางสาว</option>
+                                    <option value="อื่น ๆ">อื่น ๆ</option>
                                 </select>
+                                {editForm.title === 'อื่น ๆ' && (
+                                    <input
+                                        type="text"
+                                        value={editCustomTitle}
+                                        onChange={(e) => setEditCustomTitle(e.target.value)}
+                                        placeholder="กรุณากรอกคำนำหน้า"
+                                        className="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                                        required
+                                    />
+                                )}
                             </div>
 
                             {/* First Name */}
