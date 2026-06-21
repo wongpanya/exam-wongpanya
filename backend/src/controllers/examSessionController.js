@@ -469,7 +469,7 @@ const logCheatEvent = asyncHandler(async (req, res) => {
 
     if (configKey) {
         // Use in-memory counter instead of DB query
-        const currentViolationCount = cheatTracker.increment(
+        const currentViolationCount = await cheatTracker.increment(
             session._id.toString(),
             req.user._id.toString()
         );
@@ -897,7 +897,7 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
     let suspendStatus = null;
 
     if (violationEvents.length > 0) {
-        const currentCount = cheatTracker.increment(
+        const currentCount = await cheatTracker.increment(
             session._id.toString(),
             req.user._id.toString(),
             violationEvents.length

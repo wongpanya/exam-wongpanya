@@ -15,19 +15,34 @@ function makeKey(sessionId, studentId) {
 }
 
 /**
- * เพิ่ม violation count +1 แล้ว return count ปัจจุบัน
+ * เพิ่ม violation count แล้ว return count ปัจจุบัน
+ * ใช้ async/await ในการ lazy load ข้อมูลตัวนับทุจริตจาก DB หากไม่มีอยู่ในหน่วยความจำ (กรณี Server Restart)
  */
-function increment(sessionId, studentId, amount = 1) {
+async function increment(sessionId, studentId, amount = 1) {
+    const key = makeKey(sessionId, studentId);
+
+    // Lazy load: หากยังไม่มีประวัติในหน่วยความจำ ให้ดึงจำนวนเหตุการณ์ทุจริตที่ยังไม่ได้เคลียร์จาก DB
+    if (!violationCounts.has(key)) {
+        const CheatingLog = require('../models/cheatingLogModel');
+        const count = await CheatingLog.countDocuments({
+            session: sessionId,
+            student: studentId,
+            isResolved: { $ne: true }
+        });
+        violationCounts.set(key, count);
+    }
+
     if (violationCounts.size >= MAX_ENTRIES) {
         const firstKey = violationCounts.keys().next().value;
         violationCounts.delete(firstKey);
     }
-    const key = makeKey(sessionId, studentId);
+
     const current = violationCounts.get(key) || 0;
     const newCount = current + amount;
     violationCounts.set(key, newCount);
     return newCount;
 }
+
 
 /**
  * ดึง count ปัจจุบัน
