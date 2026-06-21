@@ -15,6 +15,7 @@ const Register = () => {
         confirmPassword: ''
     });
 
+    const [customTitle, setCustomTitle] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [error, setError] = useState('');
@@ -23,11 +24,23 @@ const Register = () => {
 
     const { title, firstName, lastName, phoneNumber, email, password, confirmPassword } = formData;
 
+    const isCustomTitle = title === 'อื่น ๆ';
+
     const onChange = (e) => {
         setFormData((prevState) => ({
             ...prevState,
             [e.target.name]: e.target.value,
         }));
+    };
+
+    const handleTitleChange = (e) => {
+        const val = e.target.value;
+        if (val === 'อื่น ๆ') {
+            setFormData(prev => ({ ...prev, title: 'อื่น ๆ' }));
+            setCustomTitle('');
+        } else {
+            setFormData(prev => ({ ...prev, title: val }));
+        }
     };
 
     const onSubmit = async (e) => {
@@ -45,20 +58,27 @@ const Register = () => {
             return;
         }
 
+        const finalTitle = isCustomTitle && customTitle.trim() ? customTitle.trim() : title;
+
+        if (!finalTitle) {
+            setError('กรุณากรอกคำนำหน้า');
+            return;
+        }
+
         try {
             setLoading(true);
+            const fullEmail = email.includes('@') ? email : `${email}@up.ac.th`;
             const response = await api.post('/users/register', {
-                title,
+                title: finalTitle,
                 firstName,
                 lastName,
                 phoneNumber,
-                email,
+                email: fullEmail,
                 password
             });
 
             if (response.data) {
                 setSuccess('สมัครสมาชิกสำเร็จ! กำลังนำทางไปหน้าเข้าสู่ระบบ...');
-                // Store token if needed, or redirect to login
                 setTimeout(() => navigate('/login'), 2000);
             }
         } catch (err) {
@@ -88,13 +108,24 @@ const Register = () => {
                                 id="title"
                                 name="title"
                                 value={title}
-                                onChange={onChange}
+                                onChange={handleTitleChange}
                                 className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 px-3 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
                             >
                                 <option value="นาย">นาย</option>
                                 <option value="นาง">นาง</option>
                                 <option value="นางสาว">นางสาว</option>
+                                <option value="อื่น ๆ">อื่น ๆ</option>
                             </select>
+                            {isCustomTitle && (
+                                <input
+                                    type="text"
+                                    value={customTitle}
+                                    onChange={(e) => setCustomTitle(e.target.value)}
+                                    placeholder="กรุณากรอกคำนำหน้า"
+                                    className="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                                    required
+                                />
+                            )}
                         </div>
 
                         {/* Name Fields */}
@@ -138,23 +169,28 @@ const Register = () => {
                                 value={phoneNumber}
                                 onChange={onChange}
                                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                                placeholder="08X-XXX-XXXX"
+                                placeholder="08XXXXXXXX"
                             />
                         </div>
 
                         {/* Email */}
                         <div>
                             <label htmlFor="email" className="block text-sm font-medium text-gray-700">อีเมล *</label>
-                            <input
-                                id="email"
-                                name="email"
-                                type="email"
-                                required
-                                value={email}
-                                onChange={onChange}
-                                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                                placeholder="example@email.com"
-                            />
+                            <div className="mt-1 flex rounded-md shadow-sm">
+                                <input
+                                    id="email"
+                                    name="email"
+                                    type="text"
+                                    required
+                                    value={email}
+                                    onChange={onChange}
+                                    className="block w-full min-w-0 flex-1 rounded-l-md border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="รหัสนิสิต (ไม่ต้องใส่ @up.ac.th)"
+                                />
+                                <span className="inline-flex items-center rounded-r-md border border-l-0 border-gray-300 bg-gray-50 px-3 text-gray-500 sm:text-sm">
+                                    @up.ac.th
+                                </span>
+                            </div>
                         </div>
 
                         {/* Password */}

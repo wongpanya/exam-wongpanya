@@ -4,8 +4,7 @@ const bcrypt = require('bcrypt');
 const userSchema = new mongoose.Schema({
     title: {
         type: String,
-        required: true,
-        enum: ['นาย', 'นาง', 'นางสาว']
+        required: true
     },
     firstName: {
         type: String,
