@@ -5,7 +5,7 @@ const SOCKET_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api')
 let socket = null;
 
 export const getSocket = () => {
-    if (socket && socket.connected) return socket;
+    if (socket) return socket;
 
     try {
         const user = JSON.parse(localStorage.getItem('user'));

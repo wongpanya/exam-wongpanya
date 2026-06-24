@@ -34,6 +34,7 @@ const CheatMonitor = () => {
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('overview');
     const [filterType, setFilterType] = useState('all');
@@ -50,7 +51,8 @@ const CheatMonitor = () => {
         };
     };
 
-    const fetchLogs = async () => {
+    const fetchLogs = async (showRefresher = false) => {
+        if (showRefresher) setIsRefreshing(true);
         try {
             const url = sessionId
                 ? `/exam-sessions/${id}/cheat-logs?sessionId=${sessionId}`
@@ -62,6 +64,7 @@ const CheatMonitor = () => {
             setError(err.response?.data?.message || 'Failed to fetch logs');
         } finally {
             setLoading(false);
+            if (showRefresher) setIsRefreshing(false);
         }
     };
 
@@ -82,6 +85,15 @@ const CheatMonitor = () => {
 
     useEffect(() => {
         fetchLogs();
+
+        // Backup auto-polling every 10 seconds in case Socket.io fails
+        const pollInterval = setInterval(() => {
+            fetchLogs();
+        }, 10000);
+
+        return () => {
+            clearInterval(pollInterval);
+        };
     }, [id, sessionId]);
 
     // Socket.io for real-time cheat events
@@ -193,9 +205,18 @@ const CheatMonitor = () => {
                     </h1>
                 </div>
 
-                {/* Global Stats */}
-                <div className="flex gap-3 text-sm">
-                    <div className="px-3 py-1 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 font-medium">
+                {/* Global Stats & Controls */}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => fetchLogs(true)}
+                        disabled={isRefreshing}
+                        className="px-3 py-1 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg flex items-center gap-1.5 font-medium text-xs sm:text-sm h-8 transition"
+                        title="รีเฟรชข้อมูล"
+                    >
+                        <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+                        <span>รีเฟรช</span>
+                    </button>
+                    <div className="px-3 py-1 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 font-medium text-xs sm:text-sm h-8 border border-red-100">
                         <AlertTriangle size={16} /> {data?.totalEvents || 0} ครั้ง
                     </div>
                 </div>

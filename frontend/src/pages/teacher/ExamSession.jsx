@@ -24,6 +24,7 @@ const ExamSession = () => {
     const [shuffleQuestions, setShuffleQuestions] = useState(false);
 
     const [maxCheatEvents, setMaxCheatEvents] = useState(1);
+    const [refreshDisabled, setRefreshDisabled] = useState(false);
 
     const qrTimerRef = useRef(null);
     const countdownRef = useRef(null);
@@ -55,6 +56,15 @@ const ExamSession = () => {
             console.error('Students fetch failed:', err);
         }
     }, [id]);
+
+    const handleRefreshStudents = useCallback(async () => {
+        if (refreshDisabled) return;
+        setRefreshDisabled(true);
+        await fetchStudents();
+        setTimeout(() => {
+            setRefreshDisabled(false);
+        }, 3000);
+    }, [fetchStudents, refreshDisabled]);
 
     // Check if there's an existing active session
     useEffect(() => {
@@ -162,6 +172,7 @@ const ExamSession = () => {
             if (countdownRef.current) clearInterval(countdownRef.current);
         };
     }, [session, showSettings]);
+
 
     const handleStop = async () => {
         const ok = await showConfirm({
@@ -478,10 +489,16 @@ const ExamSession = () => {
 
                     {!isEnded && (
                         <button
-                            onClick={fetchStudents}
-                            className="mt-4 w-full py-2 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition flex items-center justify-center gap-1"
+                            onClick={handleRefreshStudents}
+                            disabled={refreshDisabled}
+                            className={`mt-4 w-full py-2 text-sm rounded-lg transition flex items-center justify-center gap-1 ${
+                                refreshDisabled 
+                                    ? 'bg-gray-50 text-gray-400 cursor-not-allowed border border-gray-100' 
+                                    : 'text-indigo-600 hover:bg-indigo-50 border border-transparent'
+                            }`}
                         >
-                            <RefreshCw size={14} /> รีเฟรช
+                            <RefreshCw size={14} className={refreshDisabled ? 'animate-spin' : ''} />
+                            {refreshDisabled ? 'กำลังรีเฟรช...' : 'รีเฟรช'}
                         </button>
                     )}
                 </div>
