@@ -64,7 +64,7 @@ const ExamSession = () => {
                 setExam(examRes.data);
 
                 const statusRes = await api.get(`/exam-sessions/${id}/status`);
-                if (statusRes.data.active) {
+                if (statusRes.data && statusRes.data.status === 'active') {
                     // Session already exists, skip settings
                     setSession(statusRes.data); // Backend returns the session object directly
                     setRotateInterval(statusRes.data.qrRotateInterval || 10);
@@ -122,7 +122,7 @@ const ExamSession = () => {
         const socket = getSocket();
         if (!socket) return;
 
-        socket.emit('join-teacher-room', session._id);
+        socket.emit('join-session', session._id);
 
         const handleStudentJoined = (data) => {
             setStudents(prev => {
@@ -146,7 +146,7 @@ const ExamSession = () => {
         return () => {
             socket.off('student-joined', handleStudentJoined);
             socket.off('student-submitted', handleStudentSubmitted);
-            socket.emit('leave-teacher-room', session._id);
+            socket.emit('leave-session', session._id);
         };
     }, [session, showSettings]);
 

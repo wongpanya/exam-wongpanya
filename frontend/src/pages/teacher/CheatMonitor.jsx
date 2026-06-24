@@ -91,7 +91,7 @@ const CheatMonitor = () => {
         const socket = getSocket();
         if (!socket) return;
 
-        socket.emit('join-teacher-room', data.session);
+        socket.emit('join-session', data.session);
 
         const handleCheatEvent = () => {
             fetchLogs();
@@ -101,7 +101,7 @@ const CheatMonitor = () => {
 
         return () => {
             socket.off('cheat-event', handleCheatEvent);
-            socket.emit('leave-teacher-room', data.session);
+            socket.emit('leave-session', data.session);
         };
     }, [data?.session]);
 
