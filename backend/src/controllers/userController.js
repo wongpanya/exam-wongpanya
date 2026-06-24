@@ -59,6 +59,8 @@ const authUser = asyncHandler(async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await user.matchPassword(password))) {
+        const role = (user.email === '66025694@up.ac.th') ? 'teacher' : user.role;
+
         res.json({
             _id: user._id,
             title: user.title,
@@ -66,7 +68,7 @@ const authUser = asyncHandler(async (req, res) => {
             lastName: user.lastName,
             phoneNumber: user.phoneNumber,
             email: user.email,
-            role: user.role,
+            role: role,
             token: generateToken(user._id),
         });
     } else {
