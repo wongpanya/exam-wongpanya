@@ -32,6 +32,14 @@ const examSessionSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    activeShortCode: {
+        type: String,
+        default: null,
+    },
+    shortCodeExpiresAt: {
+        type: Date,
+        default: null,
+    },
     studentCount: {
         type: Number,
         default: 0,

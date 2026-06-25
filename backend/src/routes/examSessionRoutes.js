@@ -6,6 +6,7 @@ const {
     getSessionStatus,
     getQRToken,
     joinExam,
+    joinExamByCode,
     getAttempt,
     autoSave,
     submitExam,
@@ -36,6 +37,7 @@ router.get('/:examId/history', protect, teacher, getExamHistory);
 router.delete('/:sessionId', protect, teacher, deleteSession);
 
 // Student routes (authenticated)
+router.post('/join-by-code', protect, joinExamByCode);
 router.post('/:examId/join', protect, validate(joinSessionSchema), joinExam);
 router.get('/:examId/attempt', protect, getAttempt);
 router.post('/:examId/auto-save', protect, validate(autoSaveSchema), autoSave);

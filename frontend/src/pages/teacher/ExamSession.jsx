@@ -13,6 +13,7 @@ const ExamSession = () => {
     const [exam, setExam] = useState(null);
     const [session, setSession] = useState(null);
     const [qrData, setQrData] = useState('');
+    const [shortCode, setShortCode] = useState('');
     const [qrCountdown, setQrCountdown] = useState(0);
     const [students, setStudents] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -42,6 +43,7 @@ const ExamSession = () => {
             // Backend sends token object, stringify for QR
             const tokenStr = typeof data.token === 'object' ? JSON.stringify(data.token) : data.token;
             setQrData(tokenStr);
+            setShortCode(data.shortCode || '');
             setQrCountdown(rotateInterval);
         } catch (err) {
             console.error('QR fetch failed:', err);
@@ -434,6 +436,18 @@ const ExamSession = () => {
                             <p className="text-xs text-gray-400 mt-2 text-center">
                                 QR หมุนทุก {rotateInterval} วินาที • Token หมดอายุ {rotateInterval + 5} วินาที
                             </p>
+
+                            <div className="w-full border-t border-dashed border-gray-100 my-4"></div>
+
+                            <div className="text-center w-full max-w-sm">
+                                <p className="text-gray-500 text-sm font-medium">หรือกรอกรหัสเข้าสอบ (Join Code)</p>
+                                <p className="text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono mt-2 select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm">
+                                    {shortCode ? `${shortCode.slice(0, 3)} ${shortCode.slice(3)}` : '--- ---'}
+                                </p>
+                                <p className="text-[10px] sm:text-xs text-gray-400 mt-2">
+                                    * กรอกรหัสนี้บนคอมพิวเตอร์ห้องแล็บเพื่อเข้าสอบโดยไม่ต้องใช้กล้อง
+                                </p>
+                            </div>
                         </>
                     )}
                 </div>

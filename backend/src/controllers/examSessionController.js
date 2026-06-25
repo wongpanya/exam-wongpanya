@@ -29,7 +29,7 @@ const startExam = asyncHandler(async (req, res) => {
         throw new Error('Exam not found');
     }
 
-    if (exam.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (exam.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized');
     }
@@ -74,7 +74,7 @@ const stopExam = asyncHandler(async (req, res) => {
         throw new Error('No active session found');
     }
 
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (session.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized');
     }
@@ -86,11 +86,35 @@ const stopExam = asyncHandler(async (req, res) => {
     // Clear in-memory cheat tracker for this session
     cheatTracker.clearSession(session._id.toString());
 
-    // Mark all in-progress attempts as submitted
-    await ExamAttempt.updateMany(
-        { session: session._id, status: 'in-progress' },
-        { status: 'submitted', submittedAt: Date.now() }
-    );
+    // Fetch and grade all in-progress attempts
+    const inProgressAttempts = await ExamAttempt.find({
+        session: session._id,
+        status: 'in-progress'
+    });
+
+    if (inProgressAttempts.length > 0) {
+        const examData = await Exam.findById(session.exam);
+        const correctMap = new Map();
+        examData.questions.forEach(q => {
+            correctMap.set(q.questionId, { correct: q.correctAnswer, points: q.points || 1 });
+        });
+
+        for (const attempt of inProgressAttempts) {
+            let score = 0;
+            if (attempt.answers && attempt.answers.length > 0) {
+                attempt.answers.forEach(ans => {
+                    const qInfo = correctMap.get(ans.questionId);
+                    if (qInfo && String(ans.selectedAnswer) === String(qInfo.correct)) {
+                        score += qInfo.points;
+                    }
+                });
+            }
+            attempt.score = score;
+            attempt.status = 'submitted';
+            attempt.submittedAt = Date.now();
+            await attempt.save();
+        }
+    }
 
     safeEmit(`session:${session._id}`, 'session-ended', {});
 
@@ -126,10 +150,28 @@ const getQRToken = asyncHandler(async (req, res) => {
         throw new Error('No active session');
     }
 
+    // Generate unique 6-digit short code
+    let shortCode;
+    let isUnique = false;
+    let attempts = 0;
+    while (!isUnique && attempts < 10) {
+        shortCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
+        const existing = await ExamSession.findOne({ activeShortCode: shortCode, status: 'active' });
+        if (!existing) {
+            isUnique = true;
+        }
+        attempts++;
+    }
+
+    // Update session
+    session.activeShortCode = shortCode;
+    session.shortCodeExpiresAt = new Date(Date.now() + (session.qrRotateInterval + 5) * 1000);
+    await session.save();
+
     // Generate a short-lived token signed with secret
     const token = generateQRToken(req.params.examId, QR_SECRET);
 
-    res.json({ token });
+    res.json({ token, shortCode });
 });
 
 // @desc    Join an exam session
@@ -222,6 +264,87 @@ const joinExam = asyncHandler(async (req, res) => {
 
     res.status(201).json({
         attemptId: attempt._id,
+        message: 'Joined successfully'
+    });
+});
+
+// @desc    Join an exam session using a 6-digit short code
+// @route   POST /api/exam-sessions/join-by-code
+// @access  Private/Student
+const joinExamByCode = asyncHandler(async (req, res) => {
+    const { shortCode } = req.body;
+
+    if (!shortCode) {
+        res.status(400);
+        throw new Error('Short code is required');
+    }
+
+    // Clean code formatting (remove spaces)
+    const cleanedCode = shortCode.replace(/\s+/g, '');
+
+    // Find active session by short code and ensure it is not expired
+    const session = await ExamSession.findOne({
+        activeShortCode: cleanedCode,
+        status: 'active',
+        shortCodeExpiresAt: { $gt: new Date() }
+    });
+
+    if (!session) {
+        res.status(400);
+        throw new Error('รหัสเข้าสอบไม่ถูกต้อง หรือหมดอายุแล้ว');
+    }
+
+    // Check existing attempt
+    let attempt = await ExamAttempt.findOne({
+        session: session._id,
+        student: req.user._id,
+    });
+
+    if (attempt) {
+        if (attempt.status === 'submitted') {
+            res.status(400);
+            throw new Error('You have already submitted this exam');
+        }
+        // If in-progress, resume
+    } else {
+        // Create new attempt
+        // Calculate max score
+        const exam = await Exam.findById(session.exam);
+        const totalPoints = exam.questions.reduce((sum, q) => sum + (q.points || 1), 0);
+
+        // Handle randomization
+        let questionOrder = exam.questions.map(q => q.questionId);
+        if (session.shuffleQuestions) {
+            for (let i = questionOrder.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [questionOrder[i], questionOrder[j]] = [questionOrder[j], questionOrder[i]];
+            }
+        }
+
+        attempt = await ExamAttempt.create({
+            exam: session.exam,
+            session: session._id,
+            student: req.user._id,
+            totalPoints,
+            questionOrder,
+            answers: [],
+        });
+
+        // Update student count
+        await ExamSession.findByIdAndUpdate(session._id, { $inc: { studentCount: 1 } });
+    }
+
+    const studentInfo = await User.findById(req.user._id).select('firstName lastName email');
+    safeEmit(`teacher:${session._id}`, 'student-joined', {
+        _id: attempt._id,
+        student: studentInfo,
+        status: 'in-progress',
+        score: null,
+    });
+
+    res.status(201).json({
+        attemptId: attempt._id,
+        examId: session.exam, // Return examId so the student frontend knows where to navigate
         message: 'Joined successfully'
     });
 });
@@ -518,7 +641,7 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         throw new Error('No session found');
     }
 
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (session.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized');
     }
@@ -610,7 +733,7 @@ const getStudentCheatLogs = asyncHandler(async (req, res) => {
         throw new Error('No session found');
     }
 
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (session.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized');
     }
@@ -671,7 +794,7 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
         throw new Error('No session found');
     }
 
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (session.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized');
     }
@@ -778,7 +901,7 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
 
     if (!session) return res.json([]);
 
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (session.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized to view this session');
     }
@@ -825,7 +948,7 @@ const deleteSession = asyncHandler(async (req, res) => {
         throw new Error('Session not found');
     }
 
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+    if (session.createdBy.toString() !== req.user._id.toString()) {
         res.status(403);
         throw new Error('Not authorized');
     }
@@ -926,6 +1049,7 @@ module.exports = {
     getSessionStatus,
     getQRToken,
     joinExam,
+    joinExamByCode,
     getAttempt,
     autoSave,
     submitExam,

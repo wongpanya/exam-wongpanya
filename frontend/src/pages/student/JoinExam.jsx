@@ -159,23 +159,63 @@ const JoinExam = () => {
         setMessage('');
     };
 
+    const handleCodeChange = (e) => {
+        let val = e.target.value;
+        // If it's a 6-digit code or starts with it, filter digits and auto-format with space
+        if (val.replace(/\s+/g, '').length <= 6 && /^\d*$/.test(val.replace(/\s+/g, ''))) {
+            let digits = val.replace(/\s+/g, '');
+            if (digits.length > 3) {
+                val = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+            } else {
+                val = digits;
+            }
+        }
+        setManualToken(val);
+    };
+
     const handleManualSubmit = async (e) => {
         e.preventDefault();
-        if (!manualToken.trim() || manualLoading) return;
+        const cleaned = manualToken.replace(/\s+/g, '');
+        if (!cleaned || manualLoading) return;
 
         setManualLoading(true);
+        setStatus('joining');
+        setMessage('กำลังเข้าห้องสอบ...');
+
         try {
-            const raw = manualToken.trim();
-            const tokenData = parseQRData(raw);
-            if (!tokenData.examId) {
-                setMessage('Token ไม่ถูกต้อง');
-                setManualLoading(false);
-                return;
+            // Check if it is a 6-digit code
+            if (cleaned.length === 6 && /^\d{6}$/.test(cleaned)) {
+                const { data } = await api.post(
+                    '/exam-sessions/join-by-code',
+                    { shortCode: cleaned }
+                );
+
+                setStatus('success');
+                setMessage('เข้าห้องสอบสำเร็จ!');
+                setTimeout(() => {
+                    navigate(`/student/exam/${data.examId}`);
+                }, 800);
+            } else {
+                // Otherwise treat it as a legacy long token
+                const tokenData = parseQRData(cleaned);
+                if (!tokenData.examId) {
+                    setStatus('error');
+                    setMessage('รูปแบบ Token หรือรหัสไม่ถูกต้อง');
+                    setTimeout(() => {
+                        setStatus('idle');
+                        setMessage('');
+                    }, 2000);
+                    return;
+                }
+                await joinWithToken(tokenData, cleaned);
             }
-            await joinWithToken(tokenData, raw);
         } catch (err) {
             setStatus('error');
-            setMessage('รูปแบบ Token ไม่ถูกต้อง');
+            setMessage(err.response?.data?.message || 'รหัสเข้าสอบไม่ถูกต้อง หรือหมดอายุแล้ว');
+            setTimeout(() => {
+                setStatus('idle');
+                setMessage('');
+            }, 3000);
         } finally {
             setManualLoading(false);
         }
@@ -296,27 +336,34 @@ const JoinExam = () => {
                 {/* Manual Token Input */}
                 {showManual && status !== 'joining' && status !== 'success' && (
                     <div className="w-full max-w-md mt-4">
-                        <form onSubmit={handleManualSubmit} className="space-y-3">
-                            <label className="block text-sm font-medium text-gray-700">วาง Token ที่นี่</label>
-                            <textarea
-                                value={manualToken}
-                                onChange={(e) => setManualToken(e.target.value)}
-                                placeholder="examId.nonce.exp.sig"
-                                rows={2}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
-                            />
+                        <form onSubmit={handleManualSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2 text-center">
+                                    กรอกรหัสเข้าสอบ (Join Code) 6 หลัก
+                                </label>
+                                <input
+                                    type="text"
+                                    value={manualToken}
+                                    onChange={handleCodeChange}
+                                    placeholder="000 000"
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-center text-3xl font-black font-mono tracking-widest focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition shadow-inner"
+                                />
+                                <p className="text-[10px] text-gray-400 text-center mt-2">
+                                    * ดูรหัสหมุนเวียนได้ที่หน้าจอของอาจารย์ หรือวาง Token ยาวที่นี่ได้
+                                </p>
+                            </div>
                             <div className="flex gap-2">
                                 <button
                                     type="submit"
                                     disabled={manualLoading || !manualToken.trim()}
-                                    className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                    className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition disabled:opacity-50 shadow-md shadow-indigo-100"
                                 >
-                                    {manualLoading ? 'กำลังเข้า...' : 'เข้าห้องสอบ'}
+                                    {manualLoading ? 'กำลังเข้าสอบ...' : 'ตกลง'}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => { setShowManual(false); setManualToken(''); }}
-                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium text-sm transition"
+                                    className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition"
                                 >
                                     ยกเลิก
                                 </button>
