@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import api from '../../config/api';
 import { getSocket } from '../../config/socket';
 import { useDialog } from '../../components/DialogProvider';
-import { Users, StopCircle, RefreshCw, Clock, AlertTriangle, Shield, Settings, Shuffle } from 'lucide-react';
+import { Users, StopCircle, RefreshCw, Clock, AlertTriangle, Shield, Settings, Shuffle, Eye, EyeOff } from 'lucide-react';
 
 const ExamSession = () => {
     const { id } = useParams();
@@ -26,6 +26,7 @@ const ExamSession = () => {
 
     const [maxCheatEvents, setMaxCheatEvents] = useState(1);
     const [refreshDisabled, setRefreshDisabled] = useState(false);
+    const [codeVisible, setCodeVisible] = useState(false);
 
     const qrTimerRef = useRef(null);
     const countdownRef = useRef(null);
@@ -441,9 +442,27 @@ const ExamSession = () => {
 
                             <div className="text-center w-full max-w-sm">
                                 <p className="text-gray-500 text-sm font-medium">หรือกรอกรหัสเข้าสอบ (Join Code)</p>
-                                <p className="text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono mt-2 select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm">
-                                    {shortCode ? `${shortCode.slice(0, 3)} ${shortCode.slice(3)}` : '--- ---'}
-                                </p>
+                                <div className="relative inline-block mt-2">
+                                    {shortCode ? (
+                                        <>
+                                            <p className={`text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm transition-all duration-300 ${codeVisible ? 'blur-0' : 'blur-[8px] select-none'}`}>
+                                                {`${shortCode.slice(0, 3)} ${shortCode.slice(3)}`}
+                                            </p>
+                                            <button
+                                                onClick={() => setCodeVisible(!codeVisible)}
+                                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/90 hover:bg-white border border-gray-200 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer"
+                                                title={codeVisible ? 'ซ่อนรหัส' : 'แสดงรหัส'}
+                                            >
+                                                {codeVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                                                {codeVisible ? 'ซ่อนรหัส' : 'แสดงรหัส'}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <p className="text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm">
+                                            --- ---
+                                        </p>
+                                    )}
+                                </div>
                                 <p className="text-[10px] sm:text-xs text-gray-400 mt-2">
                                     * กรอกรหัสนี้บนคอมพิวเตอร์ห้องแล็บเพื่อเข้าสอบโดยไม่ต้องใช้กล้อง
                                 </p>
