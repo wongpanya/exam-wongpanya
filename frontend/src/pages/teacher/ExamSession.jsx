@@ -442,20 +442,34 @@ const ExamSession = () => {
 
                             <div className="text-center w-full max-w-sm">
                                 <p className="text-gray-500 text-sm font-medium">หรือกรอกรหัสเข้าสอบ (Join Code)</p>
-                                <div className="relative inline-block mt-2">
+                                <div className="mt-2 space-y-3">
                                     {shortCode ? (
                                         <>
-                                            <p className={`text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm transition-all duration-300 ${codeVisible ? 'blur-0' : 'blur-[8px] select-none'}`}>
-                                                {`${shortCode.slice(0, 3)} ${shortCode.slice(3)}`}
-                                            </p>
-                                            <button
-                                                onClick={() => setCodeVisible(!codeVisible)}
-                                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/90 hover:bg-white border border-gray-200 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer"
-                                                title={codeVisible ? 'ซ่อนรหัส' : 'แสดงรหัส'}
-                                            >
-                                                {codeVisible ? <EyeOff size={18} /> : <Eye size={18} />}
-                                                {codeVisible ? 'ซ่อนรหัส' : 'แสดงรหัส'}
-                                            </button>
+                                            <div className="relative inline-block">
+                                                <p className={`text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm transition-all duration-300 ${codeVisible ? '' : 'blur-[8px] select-none'}`}>
+                                                    {`${shortCode.slice(0, 3)} ${shortCode.slice(3)}`}
+                                                </p>
+                                                {!codeVisible && (
+                                                    <button
+                                                        onClick={() => setCodeVisible(true)}
+                                                        className="absolute inset-0 flex items-center justify-center bg-white/80 hover:bg-white border border-gray-200 rounded-xl px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:shadow transition-all cursor-pointer"
+                                                        title="แสดงรหัส"
+                                                    >
+                                                        <Eye size={18} className="mr-2" />
+                                                        แสดงรหัส
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {codeVisible && (
+                                                <button
+                                                    onClick={() => setCodeVisible(false)}
+                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 transition-all cursor-pointer"
+                                                    title="ซ่อนรหัส"
+                                                >
+                                                    <EyeOff size={18} />
+                                                    ซ่อนรหัส
+                                                </button>
+                                            )}
                                         </>
                                     ) : (
                                         <p className="text-4xl sm:text-5xl font-black text-indigo-600 tracking-widest font-mono select-all bg-indigo-50 px-6 py-3.5 rounded-xl border border-indigo-100 shadow-sm">

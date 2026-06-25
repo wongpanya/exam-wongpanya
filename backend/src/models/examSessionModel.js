@@ -16,13 +16,13 @@ const examSessionSchema = new mongoose.Schema({
         default: 10, // seconds
     },
     cheatConfig: {
-        tabSwitch: { type: Boolean, default: false },
-        windowBlur: { type: Boolean, default: false },
-        copyPaste: { type: Boolean, default: false },
-        rightClick: { type: Boolean, default: false },
-        printScreen: { type: Boolean, default: false },
-        devTools: { type: Boolean, default: false },
-        forbiddenKeys: { type: Boolean, default: false },
+        tabSwitch: { type: Boolean, default: true },
+        windowBlur: { type: Boolean, default: true },
+        copyPaste: { type: Boolean, default: true },
+        rightClick: { type: Boolean, default: true },
+        printScreen: { type: Boolean, default: true },
+        devTools: { type: Boolean, default: true },
+        forbiddenKeys: { type: Boolean, default: true },
     },
     maxCheatEvents: {
         type: Number,
@@ -37,6 +37,14 @@ const examSessionSchema = new mongoose.Schema({
         default: null,
     },
     shortCodeExpiresAt: {
+        type: Date,
+        default: null,
+    },
+    previousShortCode: {
+        type: String,
+        default: null,
+    },
+    previousShortCodeExpiresAt: {
         type: Date,
         default: null,
     },

@@ -51,6 +51,12 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         setCheatCount(prev => prev + 1);
     };
 
+    const resetCheatStatus = useCallback(() => {
+        setCheatCount(0);
+        setWarnings([]);
+        setIsTabHidden(false);
+    }, []);
+
     const flushLogs = useCallback(async () => {
         if (logQueueRef.current.length === 0) return;
 
@@ -184,6 +190,7 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         cheatCount,
         isTabHidden,
         warnings,
+        resetCheatStatus,
     };
 };
 

@@ -18,6 +18,25 @@ const safeEmit = (room, event, data) => {
     }
 };
 
+/**
+ * Check if a cheat detection type is enabled in session config.
+ * If cheatConfig is missing, empty, or has ALL values false (legacy sessions),
+ * treat all types as enabled (backward-compatible default).
+ */
+const isCheatTypeEnabled = (session, configKey) => {
+    if (!configKey) return false;
+    const config = session.cheatConfig;
+    // No config at all → all enabled
+    if (!config) return true;
+    // If the specific key is explicitly true, it's enabled
+    if (config[configKey] === true) return true;
+    // If it's explicitly false, check if ALL keys are false (legacy default)
+    // If so, treat as "no config set" → all enabled
+    const allKeys = ['tabSwitch', 'windowBlur', 'copyPaste', 'rightClick', 'printScreen', 'devTools', 'forbiddenKeys'];
+    const allFalse = allKeys.every(k => config[k] !== true);
+    return allFalse; // If all are false (legacy), treat all as enabled
+};
+
 // @desc    Start an exam session
 // @route   POST /api/exam-sessions/:examId/start
 // @access  Private/Teacher
@@ -46,6 +65,17 @@ const startExam = asyncHandler(async (req, res) => {
 
     const { qrRotateInterval, shuffleQuestions, cheatConfig, maxCheatEvents } = req.body;
 
+    // Default all cheat types to enabled if not provided
+    const defaultCheatConfig = {
+        tabSwitch: true,
+        windowBlur: true,
+        copyPaste: true,
+        rightClick: true,
+        printScreen: true,
+        devTools: true,
+        forbiddenKeys: true,
+    };
+
     session = await ExamSession.create({
         exam: exam._id,
         createdBy: req.user._id,
@@ -53,7 +83,7 @@ const startExam = asyncHandler(async (req, res) => {
         startedAt: Date.now(),
         qrRotateInterval: qrRotateInterval || 10,
         shuffleQuestions: shuffleQuestions || false,
-        cheatConfig: cheatConfig || {},
+        cheatConfig: cheatConfig && Object.keys(cheatConfig).length > 0 ? cheatConfig : defaultCheatConfig,
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
     });
 
@@ -86,10 +116,10 @@ const stopExam = asyncHandler(async (req, res) => {
     // Clear in-memory cheat tracker for this session
     cheatTracker.clearSession(session._id.toString());
 
-    // Fetch and grade all in-progress attempts
+    // Fetch and grade all in-progress/suspended attempts
     const inProgressAttempts = await ExamAttempt.find({
         session: session._id,
-        status: 'in-progress'
+        status: { $in: ['in-progress', 'suspended'] }
     });
 
     if (inProgressAttempts.length > 0) {
@@ -163,7 +193,12 @@ const getQRToken = asyncHandler(async (req, res) => {
         attempts++;
     }
 
-    // Update session
+    // Update session: archive current code as previous code with 5 seconds grace period
+    if (session.activeShortCode) {
+        session.previousShortCode = session.activeShortCode;
+        session.previousShortCodeExpiresAt = new Date(Date.now() + 5000);
+    }
+
     session.activeShortCode = shortCode;
     session.shortCodeExpiresAt = new Date(Date.now() + (session.qrRotateInterval + 5) * 1000);
     await session.save();
@@ -282,11 +317,19 @@ const joinExamByCode = asyncHandler(async (req, res) => {
     // Clean code formatting (remove spaces)
     const cleanedCode = shortCode.replace(/\s+/g, '');
 
-    // Find active session by short code and ensure it is not expired
+    // Find active session by short code (active or previous) and ensure it is not expired
     const session = await ExamSession.findOne({
-        activeShortCode: cleanedCode,
         status: 'active',
-        shortCodeExpiresAt: { $gt: new Date() }
+        $or: [
+            {
+                activeShortCode: cleanedCode,
+                shortCodeExpiresAt: { $gt: new Date() }
+            },
+            {
+                previousShortCode: cleanedCode,
+                previousShortCodeExpiresAt: { $gt: new Date() }
+            }
+        ]
     });
 
     if (!session) {
@@ -588,9 +631,10 @@ const logCheatEvent = asyncHandler(async (req, res) => {
         'forbidden_key': 'forbiddenKeys'
     };
 
-    const configKey = configKeyMap[eventType] || eventType;
+    const configKey = configKeyMap[eventType];
 
-    if (configKey) {
+    // Only count as violation if the cheat configuration is enabled in session
+    if (isCheatTypeEnabled(session, configKey)) {
         // Use in-memory counter instead of DB query
         const currentViolationCount = await cheatTracker.increment(
             session._id.toString(),
@@ -1015,8 +1059,11 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
         'forbidden_key': 'forbiddenKeys'
     };
 
-    // Count only events that map to a known cheat type
-    const violationEvents = batch.filter(e => configKeyMap[e.eventType]);
+    // Count only events that map to an ENABLED cheat type in configuration
+    const violationEvents = batch.filter(e => {
+        const configKey = configKeyMap[e.eventType];
+        return isCheatTypeEnabled(session, configKey);
+    });
     let suspendStatus = null;
 
     if (violationEvents.length > 0) {

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
 import useAntiCheat from '../../hooks/useAntiCheat';
-import { Clock, Send, AlertTriangle, CheckCircle, Shield, Save, Lock, Wifi, WifiOff } from 'lucide-react';
+import { Clock, Send, AlertTriangle, CheckCircle, Shield, Save, Lock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
 const DEBOUNCE_SAVE_MS = 2000;
@@ -22,6 +22,7 @@ const TakeExam = () => {
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const [suspended, setSuspended] = useState(false);
+    const [checkingStatus, setCheckingStatus] = useState(false);
     const [result, setResult] = useState(null);
     const [timeLeft, setTimeLeft] = useState(null);
     const [lastSaved, setLastSaved] = useState(null);
@@ -45,7 +46,7 @@ const TakeExam = () => {
     }, []);
 
     // Anti-cheat hook
-    const { cheatCount, isTabHidden, warnings } = useAntiCheat(examId, !submitted && !suspended, () => setSuspended(true));
+    const { cheatCount, isTabHidden, warnings, resetCheatStatus } = useAntiCheat(examId, !submitted && !suspended, () => setSuspended(true));
 
     const getConfig = () => {
         const user = JSON.parse(localStorage.getItem('user'));
@@ -311,29 +312,47 @@ const TakeExam = () => {
         }
     }, [answers, exam, examId, submitting, submitted, suspended, showAlert, showConfirm]);
 
+    // Check exam status (polled + manual)
+    const checkStatus = useCallback(async () => {
+        try {
+            const { data } = await api.get(`/exam-sessions/${examId}/my-status`);
+            
+            if (data.sessionStatus === 'ended' || data.status === 'submitted') {
+                if (timerRef.current) clearInterval(timerRef.current);
+                if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current);
+                if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
+                window.location.reload();
+                return;
+            }
+
+            if (data.status === 'suspended') setSuspended(true);
+            else if (data.status === 'in-progress' || data.status === 'in_progress') {
+                if (suspended) {
+                    resetCheatStatus();
+                    setSuspended(false);
+                }
+            }
+        } catch (err) {
+            // Silently ignore — next poll will retry
+        }
+    }, [examId, suspended, resetCheatStatus]);
+
+    const handleManualStatusCheck = async () => {
+        setCheckingStatus(true);
+        await checkStatus();
+        setCheckingStatus(false);
+    };
+
     // Lightweight HTTP polling for suspend/session-end status (replaces Socket.io to save RAM)
     useEffect(() => {
         if (!sessionInfo || submitted) return;
-
-        const checkStatus = async () => {
-            try {
-                const { data } = await api.get(`/exam-sessions/${examId}/my-status`);
-                if (data.status === 'suspended') setSuspended(true);
-                else if (data.status === 'in_progress') setSuspended(false);
-                else if (data.status === 'submitted' || data.sessionEnded) {
-                    handleSubmit(true);
-                }
-            } catch (err) {
-                // Silently ignore — next poll will retry
-            }
-        };
 
         statusCheckTimerRef.current = setInterval(checkStatus, STATUS_CHECK_INTERVAL);
 
         return () => {
             if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
         };
-    }, [sessionInfo, submitted, examId, handleSubmit]);
+    }, [sessionInfo, submitted, checkStatus]);
 
     if (loading) {
         return (
@@ -412,12 +431,39 @@ const TakeExam = () => {
                         <h2 className="text-2xl font-bold text-gray-900 mb-2">การสอบถูกระงับชั่วคราว</h2>
                         <p className="text-gray-600 mb-6">
                             กรุณาติดต่อผู้คุมสอบเพื่อดำเนินการต่อ<br />
-                            ระบบจะตรวจสอบสถานะใหม่โดยอัตโนมัติ
+                            หากผู้คุมสอบยืนยันว่าคุณสามารถดำเนินการสอบต่อได้ ให้กดปุ่ม "ลองใหม่" เพื่อรีเฟรชสถานะ<br/> 
+                            หากคุณออกจากหน้าสอบหรือปิดแท็บนี้ การสอบจะถูกบันทึกและส่งอัตโนมัติ
+                        </p>
+                        <p className="text-gray-500 text-sm mb-4">
+                            เหตุผลที่ถูกระงับ: {(() => {
+                                if (warnings.length === 0) return 'ไม่ทราบ';
+                                const lastWarning = warnings[warnings.length - 1];
+                                const mapper = {
+                                    'tab_switch': 'สลับแท็บ/ออกจากหน้าต่างสอบ',
+                                    'blur': 'คลิกออกนอกหน้าต่างสอบ',
+                                    'copy': 'คัดลอกข้อความ',
+                                    'cut': 'ตัดข้อความ',
+                                    'paste': 'วางข้อความ',
+                                    'right_click': 'คลิกขวา',
+                                    'print_screen': 'แคปหน้าจอ (Print Screen)',
+                                    'devtools': 'เปิดหน้าต่างนักพัฒนา (DevTools)',
+                                    'forbidden_key': 'กดคีย์ต้องห้าม',
+                                };
+                                return mapper[lastWarning.eventType] || lastWarning.detail || lastWarning.eventType || 'ไม่ทราบ';
+                            })()}
                         </p>
                         <div className="flex items-center justify-center gap-2 text-indigo-600 bg-indigo-50 py-2 px-4 rounded-full text-sm font-medium animate-pulse">
                             <div className="w-2 h-2 bg-indigo-600 rounded-full animate-ping" />
                             กำลังรอการปลดล็อก...
                         </div>
+                        <button
+                            onClick={handleManualStatusCheck}
+                            disabled={checkingStatus}
+                            className="mt-4 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition cursor-pointer"
+                        >
+                            <RefreshCw size={18} className={checkingStatus ? 'animate-spin' : ''} />
+                            {checkingStatus ? 'กำลังตรวจสอบ...' : 'ลองใหม่'}
+                        </button>
                     </div>
                 </div>
             )}
