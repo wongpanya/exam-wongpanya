@@ -38,7 +38,7 @@ const Login = () => {
                 // Store user data and token correctly
                 localStorage.setItem('user', JSON.stringify(response.data));
                 // Redirect based on role
-                if (response.data.role === 'teacher' || response.data.email === '66025694@up.ac.th') {
+                if (response.data.role === 'teacher') {
                     navigate('/teacher');
                 } else if (response.data.role === 'student') {
                     navigate('/student');

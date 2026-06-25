@@ -9,7 +9,7 @@ const Home = () => {
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
             const parsedUser = JSON.parse(storedUser);
-            if (parsedUser.role === 'teacher' || parsedUser.email === '66025694@up.ac.th') {
+            if (parsedUser.role === 'teacher') {
                 navigate('/teacher');
             } else if (parsedUser.role === 'student') {
                 navigate('/student');

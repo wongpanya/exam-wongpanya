@@ -34,7 +34,7 @@ const initSocket = (server) => {
 
         socket.on('join-session', (sessionId) => {
             socket.join(`session:${sessionId}`);
-            if (socket.user.role === 'teacher' || socket.user.email === '66025694@up.ac.th') {
+            if (socket.user.role === 'teacher') {
                 socket.join(`teacher:${sessionId}`);
             }
         });

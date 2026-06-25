@@ -33,7 +33,7 @@ const TeacherLayout = () => {
             return;
         }
         const parsedUser = JSON.parse(storedUser);
-        if (parsedUser.role !== 'teacher' && parsedUser.email !== '66025694@up.ac.th') {
+        if (parsedUser.role !== 'teacher') {
             navigate('/');
             return;
         }
