@@ -88,9 +88,9 @@ const ExamList = () => {
         setActiveTab('exams');
     }, [categoryId]);
 
-    // Fetch students when categoryId or activeTab is students
+    // Fetch students when categoryId or activeTab is students or attendance
     useEffect(() => {
-        if (categoryId && activeTab === 'students') {
+        if (categoryId && (activeTab === 'students' || activeTab === 'attendance')) {
             fetchCategoryStudents();
         }
     }, [categoryId, activeTab]);

@@ -118,13 +118,13 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
     }, []);
 
     // Fetch checking logs manually
-    const fetchCheckingLogs = useCallback(async (sessionId) => {
+    const fetchCheckingLogs = useCallback(async (sessionId, shouldRotate = false) => {
         try {
             setRefreshingLogs(true);
             const { data } = await api.get(`/attendance/${sessionId}`, getConfig());
             setCheckingLogs(data.records || []);
             setIsCheckingActive(data.status === 'active');
-            if (data.status === 'active') {
+            if (data.status === 'active' && shouldRotate) {
                 rotateCode(sessionId);
             }
         } catch (err) {
@@ -142,8 +142,8 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
         setTimeLeft(session.qrRotateInterval);
         setReopenInterval(session.qrRotateInterval);
         
-        // Fetch fully populated logs
-        fetchCheckingLogs(session._id);
+        // Fetch fully populated logs and perform initial rotation
+        fetchCheckingLogs(session._id, true);
 
         // Connect socket for real-time check-ins
         const socket = getSocket();
