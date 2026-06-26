@@ -16,7 +16,7 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newSessionName, setNewSessionName] = useState('');
     const [newInterval, setNewInterval] = useState(10);
-    const [customInterval, setCustomInterval] = useState(15);
+    const [customInterval, setCustomInterval] = useState('15');
     const [newCutoff, setNewCutoff] = useState('');
     const [creating, setCreating] = useState(false);
 
@@ -26,6 +26,7 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
     const [shortCode, setShortCode] = useState('');
     const [timeLeft, setTimeLeft] = useState(10);
     const [reopenInterval, setReopenInterval] = useState(10);
+    const [reopenIntervalType, setReopenIntervalType] = useState('preset');
     const [checkingLogs, setCheckingLogs] = useState([]);
     const [isCheckingActive, setIsCheckingActive] = useState(true);
     const [refreshingLogs, setRefreshingLogs] = useState(false);
@@ -64,7 +65,10 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
 
         try {
             setCreating(true);
-            const finalInterval = newInterval === 'custom' ? customInterval : Number(newInterval);
+            const parsedCustom = Number(customInterval);
+            const finalInterval = newInterval === 'custom'
+                ? (isNaN(parsedCustom) || parsedCustom < 5 ? 5 : Math.min(3600, Math.floor(parsedCustom)))
+                : Number(newInterval);
             const formattedCutoff = newCutoff ? new Date(newCutoff).toISOString() : null;
             const { data } = await api.post(
                 '/attendance',
@@ -80,7 +84,7 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
             setShowCreateModal(false);
             setNewSessionName('');
             setNewInterval(10);
-            setCustomInterval(15);
+            setCustomInterval('15');
             setNewCutoff('');
             fetchSessions();
             
@@ -141,6 +145,11 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
         setIsCheckingActive(session.status === 'active');
         setTimeLeft(session.qrRotateInterval);
         setReopenInterval(session.qrRotateInterval);
+        if ([5, 10, 15, 20].includes(session.qrRotateInterval)) {
+            setReopenIntervalType('preset');
+        } else {
+            setReopenIntervalType('custom');
+        }
         
         // Fetch fully populated logs and perform initial rotation
         fetchCheckingLogs(session._id, true);
@@ -359,11 +368,11 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                                     onChange={(e) => setNewInterval(e.target.value === 'custom' ? 'custom' : Number(e.target.value))}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-sans"
                                 >
-                                    <option value={10}>10 วินาที (แนะนำ - ปลอดภัยสูงสุด)</option>
+                                    <option value={5}>5 วินาที</option>
+                                    <option value={10}>10 วินาที (แนะนำ)</option>
+                                    <option value={15}>15 วินาที</option>
                                     <option value={20}>20 วินาที</option>
-                                    <option value={30}>30 วินาที</option>
-                                    <option value={60}>60 วินาที</option>
-                                    <option value="custom font-sans">กำหนดเอง...</option>
+                                    <option value="custom">กำหนดเอง...</option>
                                 </select>
                             </div>
                             {newInterval === 'custom' && (
@@ -374,7 +383,17 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                                         min={5}
                                         max={3600}
                                         value={customInterval}
-                                        onChange={(e) => setCustomInterval(Math.max(5, Number(e.target.value)))}
+                                        onChange={(e) => setCustomInterval(e.target.value)}
+                                        onBlur={() => {
+                                            const val = Number(customInterval);
+                                            if (!customInterval || isNaN(val) || val < 5) {
+                                                setCustomInterval(5);
+                                            } else if (val > 3600) {
+                                                setCustomInterval(3600);
+                                            } else {
+                                                setCustomInterval(Math.floor(val));
+                                            }
+                                        }}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-sans"
                                         required
                                     />
@@ -473,21 +492,57 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                                         <h4 className="font-bold text-gray-800 text-sm font-sans">การเช็คชื่อถูกปิดใช้งานชั่วคราว</h4>
                                         <p className="text-xs text-gray-400 mt-1 font-sans">นิสิตจะไม่สามารถใช้ QR หรือ PIN ชุดเดิมในการเช็คชื่อได้</p>
                                     </div>
-                                    <div className="pt-2 border-t border-gray-50 flex flex-col gap-2 font-sans">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase text-left mt-1 font-sans">ระบุเวลาหมุนใหม่เพื่อเปิดอีกครั้ง (วินาที)</p>
-                                        <div className="flex gap-2 justify-center max-w-xs mx-auto">
-                                            <input
-                                                type="number"
-                                                min={5}
-                                                max={3600}
-                                                value={reopenInterval}
-                                                onChange={(e) => setReopenInterval(Math.max(5, Number(e.target.value)))}
-                                                className="px-3 py-1.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs w-24 text-center font-sans"
-                                                required
-                                            />
+                                    <div className="pt-2 border-t border-gray-50 flex flex-col gap-2 font-sans w-full max-w-xs text-left">
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase text-center mt-1 font-sans">ระบุเวลาหมุนใหม่เพื่อเปิดอีกครั้ง (วินาที)</p>
+                                        <div className="flex flex-col gap-2">
+                                            <select
+                                                value={reopenIntervalType === 'custom' ? 'custom' : reopenInterval}
+                                                onChange={(e) => {
+                                                    if (e.target.value === 'custom') {
+                                                        setReopenIntervalType('custom');
+                                                    } else {
+                                                        setReopenIntervalType('preset');
+                                                        setReopenInterval(Number(e.target.value));
+                                                    }
+                                                }}
+                                                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white font-sans"
+                                            >
+                                                <option value={5}>5 วินาที</option>
+                                                <option value={10}>10 วินาที (แนะนำ)</option>
+                                                <option value={15}>15 วินาที</option>
+                                                <option value={20}>20 วินาที</option>
+                                                <option value="custom">กำหนดเอง...</option>
+                                            </select>
+
+                                            {reopenIntervalType === 'custom' && (
+                                                <input
+                                                    type="number"
+                                                    min={5}
+                                                    max={3600}
+                                                    value={reopenInterval}
+                                                    onChange={(e) => setReopenInterval(e.target.value)}
+                                                    onBlur={() => {
+                                                        const val = Number(reopenInterval);
+                                                        if (!reopenInterval || isNaN(val) || val < 5) {
+                                                            setReopenInterval(5);
+                                                        } else if (val > 3600) {
+                                                            setReopenInterval(3600);
+                                                        } else {
+                                                            setReopenInterval(Math.floor(val));
+                                                        }
+                                                    }}
+                                                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-center font-sans"
+                                                    required
+                                                />
+                                            )}
+
                                             <button
-                                                onClick={() => handleUpdateInterval(reopenInterval)}
-                                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex-1 font-sans"
+                                                onClick={() => {
+                                                    const val = Number(reopenInterval);
+                                                    const finalInterval = !reopenInterval || isNaN(val) || val < 5 ? 5 : Math.min(3600, Math.floor(val));
+                                                    handleUpdateInterval(finalInterval);
+                                                }}
+                                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition w-full font-sans"
                                             >
                                                 เปิดใช้งานใหม่
                                             </button>
