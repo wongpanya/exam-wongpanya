@@ -27,7 +27,8 @@ export default function AttendanceSummary() {
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('all'); // all, present, late, absent
-    const [cutoffEdit, setCutoffEdit] = useState('');
+    const [cutoffEditDate, setCutoffEditDate] = useState('');
+    const [cutoffEditTime, setCutoffEditTime] = useState('');
     const [savingCutoff, setSavingCutoff] = useState(false);
 
     // Get Auth Config
@@ -52,9 +53,12 @@ export default function AttendanceSummary() {
                 const d = new Date(data.absentCutoffAt);
                 const tzOffset = d.getTimezoneOffset() * 60000;
                 const localISOTime = new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
-                setCutoffEdit(localISOTime);
+                const parts = localISOTime.split('T');
+                setCutoffEditDate(parts[0]);
+                setCutoffEditTime(parts[1]);
             } else {
-                setCutoffEdit('');
+                setCutoffEditDate('');
+                setCutoffEditTime('');
             }
 
             // Map class students to their attendance records
@@ -150,7 +154,11 @@ export default function AttendanceSummary() {
     const handleSaveCutoff = async () => {
         try {
             setSavingCutoff(true);
-            const formattedCutoff = cutoffEdit ? new Date(cutoffEdit).toISOString() : null;
+            let formattedCutoff = null;
+            if (cutoffEditDate) {
+                const timeString = cutoffEditTime || '00:00';
+                formattedCutoff = new Date(`${cutoffEditDate}T${timeString}`).toISOString();
+            }
             const { data } = await api.post(`/attendance/${sessionId}/status`, {
                 absentCutoffAt: formattedCutoff
             }, getConfig());
@@ -345,17 +353,35 @@ export default function AttendanceSummary() {
                         หากเวลาปัจจุบันเลยเวลาที่กำหนด ระบบจะถือว่านักเรียนที่เช็คชื่อมีสถานะ "สาย" (หากไม่ได้เช็คชื่อเลย จะถือว่า "ขาดเรียน")
                     </p>
                 </div>
-                <div className="flex items-center gap-2 font-sans">
-                    <input
-                        type="datetime-local"
-                        value={cutoffEdit}
-                        onChange={(e) => setCutoffEdit(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs w-full md:w-52 bg-white"
-                    />
+                <div className="flex flex-col md:flex-row md:items-end gap-3 font-sans w-full md:w-auto">
+                    <div className="grid grid-cols-2 gap-2 w-full md:w-[280px]">
+                        <div>
+                            <label className="block text-[10px] text-gray-400 mb-0.5 font-sans">เลือกวันที่ก่อน</label>
+                            <input
+                                type="date"
+                                value={cutoffEditDate}
+                                onChange={(e) => {
+                                    setCutoffEditDate(e.target.value);
+                                    if (!e.target.value) setCutoffEditTime('');
+                                }}
+                                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white font-sans"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] text-gray-400 mb-0.5 font-sans">เลือกเวลา</label>
+                            <input
+                                type="time"
+                                value={cutoffEditTime}
+                                onChange={(e) => setCutoffEditTime(e.target.value)}
+                                disabled={!cutoffEditDate}
+                                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white font-sans disabled:bg-gray-50 disabled:text-gray-400"
+                            />
+                        </div>
+                    </div>
                     <button
                         onClick={handleSaveCutoff}
                         disabled={savingCutoff}
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 font-sans disabled:opacity-50"
+                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 font-sans disabled:opacity-50 h-[34px] md:self-end"
                     >
                         <Save size={12} /> {savingCutoff ? 'บันทึก...' : 'บันทึกเวลา'}
                     </button>

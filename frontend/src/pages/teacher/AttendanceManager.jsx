@@ -17,7 +17,8 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
     const [newSessionName, setNewSessionName] = useState('');
     const [newInterval, setNewInterval] = useState(10);
     const [customInterval, setCustomInterval] = useState('15');
-    const [newCutoff, setNewCutoff] = useState('');
+    const [newCutoffDate, setNewCutoffDate] = useState('');
+    const [newCutoffTime, setNewCutoffTime] = useState('');
     const [creating, setCreating] = useState(false);
 
     // Active checking screen states
@@ -69,7 +70,13 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
             const finalInterval = newInterval === 'custom'
                 ? (isNaN(parsedCustom) || parsedCustom < 5 ? 5 : Math.min(3600, Math.floor(parsedCustom)))
                 : Number(newInterval);
-            const formattedCutoff = newCutoff ? new Date(newCutoff).toISOString() : null;
+            
+            let formattedCutoff = null;
+            if (newCutoffDate) {
+                const timeString = newCutoffTime || '00:00';
+                formattedCutoff = new Date(`${newCutoffDate}T${timeString}`).toISOString();
+            }
+
             const { data } = await api.post(
                 '/attendance',
                 {
@@ -85,7 +92,8 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
             setNewSessionName('');
             setNewInterval(10);
             setCustomInterval('15');
-            setNewCutoff('');
+            setNewCutoffDate('');
+            setNewCutoffTime('');
             fetchSessions();
             
             // Auto open the newly created session
@@ -400,13 +408,31 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                                 </div>
                             )}
                             <div>
-                                <label className="block text-xs font-semibold text-gray-600 mb-1 font-sans">เวลาหมดเขตการเช็คชื่อ (เช็คสายอัตโนมัติหากเลยเวลา - เลือกได้)</label>
-                                <input
-                                    type="datetime-local"
-                                    value={newCutoff}
-                                    onChange={(e) => setNewCutoff(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-sans"
-                                />
+                                <label className="block text-xs font-semibold text-gray-600 mb-1 font-sans">กำหนดเวลาสาย (หากเลยเวลา ที่กำหนด จะเช็คสาย)</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-[10px] text-gray-400 mb-0.5 font-sans">เลือกวันที่ก่อน</label>
+                                        <input
+                                            type="date"
+                                            value={newCutoffDate}
+                                            onChange={(e) => {
+                                                setNewCutoffDate(e.target.value);
+                                                if (!e.target.value) setNewCutoffTime('');
+                                            }}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-sans"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] text-gray-400 mb-0.5 font-sans">เลือกเวลา</label>
+                                        <input
+                                            type="time"
+                                            value={newCutoffTime}
+                                            onChange={(e) => setNewCutoffTime(e.target.value)}
+                                            disabled={!newCutoffDate}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-sans disabled:bg-gray-50 disabled:text-gray-400"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div className="flex gap-2 pt-2 font-sans">
@@ -419,7 +445,12 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                             </button>
                             <button
                                 type="button"
-                                onClick={() => { setShowCreateModal(false); setNewSessionName(''); }}
+                                onClick={() => { 
+                                    setShowCreateModal(false); 
+                                    setNewSessionName(''); 
+                                    setNewCutoffDate('');
+                                    setNewCutoffTime('');
+                                }}
                                 className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-semibold text-sm transition font-sans"
                             >
                                 ยกเลิก
