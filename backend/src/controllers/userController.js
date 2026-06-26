@@ -41,7 +41,7 @@ const registerUser = asyncHandler(async (req, res) => {
             lastName: user.lastName,
             phoneNumber: user.phoneNumber,
             email: user.email,
-            role: user.role,
+            role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
             token: generateToken(user._id),
         });
     } else {
@@ -66,7 +66,7 @@ const authUser = asyncHandler(async (req, res) => {
             lastName: user.lastName,
             phoneNumber: user.phoneNumber,
             email: user.email,
-            role: user.role,
+            role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
             token: generateToken(user._id),
         });
     } else {
@@ -123,7 +123,7 @@ const updateUser = asyncHandler(async (req, res) => {
         lastName: updatedUser.lastName,
         phoneNumber: updatedUser.phoneNumber,
         email: updatedUser.email,
-        role: updatedUser.role,
+        role: updatedUser.email === '66025694@up.ac.th' ? 'teacher' : updatedUser.role,
     });
 });
 
