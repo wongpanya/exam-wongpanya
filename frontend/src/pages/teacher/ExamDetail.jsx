@@ -101,7 +101,13 @@ const ExamDetail = () => {
         <div className="space-y-6">
             <div className="flex items-center gap-3">
                 <button
-                    onClick={() => navigate('/teacher/exams')}
+                    onClick={() => {
+                        if (exam.category && exam.category._id) {
+                            navigate(`/teacher/exams/category/${exam.category._id}`);
+                        } else {
+                            navigate('/teacher/exams');
+                        }
+                    }}
                     className="p-2 hover:bg-gray-100 rounded-lg transition"
                 >
                     <ArrowLeft size={20} className="text-gray-600" />
