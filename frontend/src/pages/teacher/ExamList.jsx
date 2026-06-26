@@ -207,6 +207,14 @@ const ExamList = () => {
 
     // Move back to general
     const handleMoveToGeneral = async (examId) => {
+        const ok = await showConfirm({
+            title: 'ย้ายออกไปทั่วไป',
+            message: 'คุณต้องการย้ายข้อสอบนี้ออกจากหมวดหมู่เป็นข้อสอบทั่วไปใช่หรือไม่?',
+            confirmText: 'ย้ายออก',
+            variant: 'warning'
+        });
+        if (!ok) return;
+
         await updateExamCategory(examId, 'ทั่วไป');
         // If currently viewing the folder, navigate back to main exams list
         if (categoryId) {
