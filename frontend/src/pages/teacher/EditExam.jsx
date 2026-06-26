@@ -16,6 +16,8 @@ const EditExam = () => {
     const [durationMin, setDurationMin] = useState(30);
     const [category, setCategory] = useState('ทั่วไป');
     const [existingCategories, setExistingCategories] = useState([]);
+    const [isNewCategory, setIsNewCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
     const [questions, setQuestions] = useState([]);
 
     // Export current questions as CSV
@@ -296,31 +298,36 @@ const EditExam = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">หมวดหมู่ข้อสอบ</label>
-                            <input
-                                type="text"
-                                value={category}
-                                onChange={(e) => setCategory(e.target.value)}
-                                placeholder="เช่น 225xxx"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
-                            />
-                            {/* Suggested Categories */}
-                            <div className="flex flex-wrap gap-1.5 items-center mt-1.5">
-                                <span className="text-[10px] text-gray-400 font-medium">หมวดหมู่แนะนำ:</span>
-                                {existingCategories.slice(0, 5).map((cat) => (
-                                    <button
-                                        key={cat}
-                                        type="button"
-                                        onClick={() => setCategory(cat)}
-                                        className={`px-2 py-0.5 text-[10px] rounded-full border transition ${
-                                            category === cat
-                                                ? 'bg-indigo-50 text-indigo-600 border-indigo-200 font-semibold'
-                                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                                        }`}
-                                    >
-                                        {cat}
-                                    </button>
+                            <select
+                                value={isNewCategory ? 'new' : category}
+                                onChange={(e) => {
+                                    if (e.target.value === 'new') {
+                                        setIsNewCategory(true);
+                                        setCategory(newCategoryName);
+                                    } else {
+                                        setIsNewCategory(false);
+                                        setCategory(e.target.value);
+                                    }
+                                }}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm bg-white"
+                            >
+                                {Array.from(new Set([...existingCategories, category, 'ทั่วไป'].filter(c => typeof c === 'string' && c !== ''))).map((cat) => (
+                                    <option key={cat} value={cat}>{cat}</option>
                                 ))}
-                            </div>
+                                <option value="new">+ สร้างหมวดหมู่ใหม่...</option>
+                            </select>
+                            {isNewCategory && (
+                                <input
+                                    type="text"
+                                    value={newCategoryName}
+                                    onChange={(e) => {
+                                        setNewCategoryName(e.target.value);
+                                        setCategory(e.target.value);
+                                    }}
+                                    placeholder="กรอกชื่อหมวดหมู่ใหม่..."
+                                    className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
+                                />
+                            )}
                         </div>
                     </div>
                 </div>
