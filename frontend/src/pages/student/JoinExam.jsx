@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Html5Qrcode } from 'html5-qrcode';
 import api from '../../config/api';
 import { Camera, AlertTriangle, CheckCircle, ArrowLeft, X, Keyboard } from 'lucide-react';
@@ -27,9 +27,13 @@ function parseQRData(raw) {
 
 const JoinExam = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const codeParam = searchParams.get('code');
+
     const [scanning, setScanning] = useState(false);
     const [status, setStatus] = useState('idle'); // idle, scanning, joining, success, error
     const [message, setMessage] = useState('');
+    const [successSubtext, setSuccessSubtext] = useState('กำลังดำเนินการต่อ...');
     const [showManual, setShowManual] = useState(false);
     const [manualToken, setManualToken] = useState('');
     const [manualLoading, setManualLoading] = useState(false);
@@ -43,6 +47,48 @@ const JoinExam = () => {
         };
     };
 
+    const joinCategoryWithCode = useCallback(async (codeToJoin) => {
+        try {
+            setStatus('joining');
+            setMessage('กำลังเข้าร่วมรายวิชา...');
+            processingRef.current = true;
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: { Authorization: `Bearer ${user.token}` },
+            };
+
+            const { data } = await api.post(
+                '/exams/categories/join',
+                { code: codeToJoin },
+                config
+            );
+
+            setStatus('success');
+            setMessage(data.message || 'เข้าร่วมรายวิชาสำเร็จ!');
+            setSuccessSubtext('กำลังนำคุณไปยังหน้ารายวิชา...');
+
+            setTimeout(() => {
+                navigate('/student');
+            }, 1500);
+        } catch (err) {
+            setStatus('error');
+            setMessage(err.response?.data?.message || 'ไม่สามารถเข้าร่วมรายวิชาได้');
+            processingRef.current = false;
+
+            setTimeout(() => {
+                setStatus('idle');
+                setMessage('');
+            }, 3000);
+        }
+    }, [navigate]);
+
+    useEffect(() => {
+        if (codeParam && !processingRef.current) {
+            joinCategoryWithCode(codeParam);
+        }
+    }, [codeParam, joinCategoryWithCode]);
+
     const joinWithToken = useCallback(async (tokenData, rawToken) => {
         try {
             setStatus('joining');
@@ -55,6 +101,7 @@ const JoinExam = () => {
 
             setStatus('success');
             setMessage('เข้าห้องสอบสำเร็จ!');
+            setSuccessSubtext('กำลังเข้าสู่ห้องสอบ...');
 
             setTimeout(() => {
                 navigate(`/student/exam/${tokenData.examId}`);
@@ -102,6 +149,25 @@ const JoinExam = () => {
                     processingRef.current = true;
 
                     try {
+                        // Check if it is a Category join URL or direct PIN code
+                        const trimmedText = decodedText.trim().replace(/\s+/g, '');
+                        if (decodedText.includes('join?code=') || decodedText.includes('join-category?code=') || /^[a-z0-9]{6}$/i.test(trimmedText)) {
+                            let codeToJoin = trimmedText;
+                            if (decodedText.includes('code=')) {
+                                const url = new URL(decodedText);
+                                codeToJoin = url.searchParams.get('code') || trimmedText;
+                            }
+                            
+                            // Stop and clear scanner before joining
+                            try { await html5QrCode.stop(); } catch (e) { /* ignore */ }
+                            try { html5QrCode.clear(); } catch (e) { /* ignore */ }
+                            html5QrCodeRef.current = null;
+                            setScanning(false);
+
+                            await joinCategoryWithCode(codeToJoin);
+                            return;
+                        }
+
                         const tokenData = parseQRData(decodedText);
 
                         if (!tokenData.examId) {
@@ -161,13 +227,13 @@ const JoinExam = () => {
 
     const handleCodeChange = (e) => {
         let val = e.target.value;
-        // If it's a 6-digit code or starts with it, filter digits and auto-format with space
-        if (val.replace(/\s+/g, '').length <= 6 && /^\d*$/.test(val.replace(/\s+/g, ''))) {
-            let digits = val.replace(/\s+/g, '');
-            if (digits.length > 3) {
-                val = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+        const cleaned = val.replace(/\s+/g, '').toLowerCase();
+        // Allow alphanumeric up to 6 characters
+        if (cleaned.length <= 6 && /^[a-z0-9]*$/.test(cleaned)) {
+            if (cleaned.length > 3) {
+                val = `${cleaned.slice(0, 3)} ${cleaned.slice(3)}`;
             } else {
-                val = digits;
+                val = cleaned;
             }
         }
         setManualToken(val);
@@ -175,26 +241,57 @@ const JoinExam = () => {
 
     const handleManualSubmit = async (e) => {
         e.preventDefault();
-        const cleaned = manualToken.replace(/\s+/g, '');
+        const cleaned = manualToken.replace(/\s+/g, '').toLowerCase();
         if (!cleaned || manualLoading) return;
 
         setManualLoading(true);
         setStatus('joining');
-        setMessage('กำลังเข้าห้องสอบ...');
+        setMessage('กำลังดำเนินการ...');
 
         try {
-            // Check if it is a 6-digit code
-            if (cleaned.length === 6 && /^\d{6}$/.test(cleaned)) {
-                const { data } = await api.post(
-                    '/exam-sessions/join-by-code',
-                    { shortCode: cleaned }
-                );
+            // 1. If it is 6 characters and contains letters, it is a category/class PIN
+            const isNumeric = /^\d{6}$/.test(cleaned);
+            if (cleaned.length === 6 && !isNumeric && /^[a-z0-9]{6}$/.test(cleaned)) {
+                await joinCategoryWithCode(cleaned);
+            } 
+            // 2. If it is 6 digits (numeric), try joining exam session first
+            else if (cleaned.length === 6 && isNumeric) {
+                try {
+                    const { data } = await api.post(
+                        '/exam-sessions/join-by-code',
+                        { shortCode: cleaned }
+                    );
 
-                setStatus('success');
-                setMessage('เข้าห้องสอบสำเร็จ!');
-                setTimeout(() => {
-                    navigate(`/student/exam/${data.examId}`);
-                }, 800);
+                    setStatus('success');
+                    setMessage('เข้าห้องสอบสำเร็จ!');
+                    setSuccessSubtext('กำลังเข้าสู่ห้องสอบ...');
+                    setTimeout(() => {
+                        navigate(`/student/exam/${data.examId}`);
+                    }, 800);
+                } catch (err) {
+                    // Fallback: try joining category in case it's a numeric class PIN
+                    try {
+                        const user = JSON.parse(localStorage.getItem('user'));
+                        const config = {
+                            headers: { Authorization: `Bearer ${user.token}` },
+                        };
+                        const { data } = await api.post(
+                            '/exams/categories/join',
+                            { code: cleaned },
+                            config
+                        );
+
+                        setStatus('success');
+                        setMessage(data.message || 'เข้าร่วมรายวิชาสำเร็จ!');
+                        setSuccessSubtext('กำลังนำคุณไปยังหน้ารายวิชา...');
+                        setTimeout(() => {
+                            navigate('/student');
+                        }, 1500);
+                    } catch (catErr) {
+                        // Throw original exam session error if both failed
+                        throw err;
+                    }
+                }
             } else {
                 // Otherwise treat it as a legacy long token
                 const tokenData = parseQRData(cleaned);
@@ -211,7 +308,7 @@ const JoinExam = () => {
             }
         } catch (err) {
             setStatus('error');
-            setMessage(err.response?.data?.message || 'รหัสเข้าสอบไม่ถูกต้อง หรือหมดอายุแล้ว');
+            setMessage(err.response?.data?.message || 'รหัสไม่ถูกต้อง หรือหมดอายุแล้ว');
             setTimeout(() => {
                 setStatus('idle');
                 setMessage('');
@@ -241,8 +338,8 @@ const JoinExam = () => {
                     <ArrowLeft size={20} className="text-gray-600" />
                 </button>
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">สแกน QR เข้าสอบ</h1>
-                    <p className="text-gray-500 text-sm">ส่องกล้องไปที่ QR Code ที่อาจารย์แสดง</p>
+                    <h1 className="text-2xl font-bold text-gray-900">สแกน QR เข้าร่วม</h1>
+                    <p className="text-gray-500 text-sm">ส่องกล้องไปที่ QR Code ของห้องสอบหรือรายวิชา</p>
                 </div>
             </div>
 
@@ -262,7 +359,7 @@ const JoinExam = () => {
                 {status === 'idle' && !showManual && (
                     <div className="text-center py-8 w-full">
                         <Camera className="mx-auto text-gray-300 mb-4" size={64} />
-                        <p className="text-gray-500 mb-6">กดปุ่มด้านล่างเพื่อเปิดกล้องสแกน QR Code</p>
+                        <p className="text-gray-500 mb-6">กดปุ่มด้านล่างเพื่อเปิดกล้องสแกน QR Code หรือเลือกใส่โค้ดเอง</p>
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                             <button
                                 onClick={startScanner}
@@ -288,7 +385,7 @@ const JoinExam = () => {
                             <p>เพิ่มความสว่างหน้าจอ / ลดแสงสะท้อน</p>
                             <p>ถือตรง ๆ อย่าเอียง</p>
                         </div>
-                        <p className="text-sm text-gray-500 animate-pulse mb-3">กำลังค้นหา QR Code...</p>
+                        <p className="text-sm text-gray-500 animate-pulse mb-3">กำลังค้นหา QR Code (ห้องสอบ หรือ รายวิชา)...</p>
                         <div className="flex items-center justify-center gap-3">
                             <button
                                 onClick={stopScanner}
@@ -320,7 +417,7 @@ const JoinExam = () => {
                     <div className="mt-4 text-center py-8">
                         <CheckCircle className="mx-auto text-green-500 mb-3" size={48} />
                         <p className="text-green-600 font-medium text-lg">{message}</p>
-                        <p className="text-sm text-gray-400 mt-1">กำลังเข้าสู่ข้อสอบ...</p>
+                        <p className="text-sm text-gray-400 mt-1">{successSubtext}</p>
                     </div>
                 )}
 
@@ -339,7 +436,7 @@ const JoinExam = () => {
                         <form onSubmit={handleManualSubmit} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2 text-center">
-                                    กรอกรหัสเข้าสอบ (Join Code) 6 หลัก
+                                    กรอกรหัสเข้าร่วม (PIN / Join Code) 6 หลัก
                                 </label>
                                 <input
                                     type="text"
@@ -349,7 +446,7 @@ const JoinExam = () => {
                                     className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-center text-3xl font-black font-mono tracking-widest focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition shadow-inner"
                                 />
                                 <p className="text-[10px] text-gray-400 text-center mt-2">
-                                    * ดูรหัสหมุนเวียนได้ที่หน้าจอของอาจารย์ หรือวาง Token ยาวที่นี่ได้
+                                    * ใช้ได้ทั้งรหัสวิชา (PIN ถาวร) และรหัสห้องสอบ 6 หลัก
                                 </p>
                             </div>
                             <div className="flex gap-2">
@@ -358,7 +455,7 @@ const JoinExam = () => {
                                     disabled={manualLoading || !manualToken.trim()}
                                     className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition disabled:opacity-50 shadow-md shadow-indigo-100"
                                 >
-                                    {manualLoading ? 'กำลังเข้าสอบ...' : 'ตกลง'}
+                                    {manualLoading ? 'กำลังดำเนินการ...' : 'ตกลง'}
                                 </button>
                                 <button
                                     type="button"

@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const Exam = require('../models/examModel');
 const Category = require('../models/categoryModel');
+const User = require('../models/userModel');
 
 // @desc    Create a new exam
 // @route   POST /api/exams
@@ -206,6 +207,158 @@ const deleteCategory = asyncHandler(async (req, res) => {
     res.json({ message: 'Category deleted' });
 });
 
+// @desc    Join a category (subject) by 6-character code
+// @route   POST /api/exams/categories/join
+// @access  Private/Student
+const joinCategory = asyncHandler(async (req, res) => {
+    const { code } = req.body;
+    if (!code) {
+        res.status(400);
+        throw new Error('กรุณาระบุรหัสเข้าชั้นเรียน');
+    }
+
+    // Normalize code: lowercase and remove all whitespace
+    const cleanedCode = code.trim().toLowerCase().replace(/\s+/g, '');
+
+    const category = await Category.findOne({ joinCode: cleanedCode });
+    if (!category) {
+        res.status(404);
+        throw new Error('ไม่พบรายวิชานี้ หรือรหัสเข้าร่วมไม่ถูกต้อง');
+    }
+
+    // Check if student is already in the class
+    if (category.students.includes(req.user._id)) {
+        res.status(400);
+        throw new Error('คุณเข้าร่วมรายวิชานี้อยู่แล้ว');
+    }
+
+    category.students.push(req.user._id);
+    await category.save();
+
+    res.json({
+        message: 'เข้าร่วมรายวิชาสำเร็จ',
+        category: {
+            _id: category._id,
+            name: category.name,
+            joinCode: category.joinCode
+        }
+    });
+});
+
+// @desc    Get categories student has joined
+// @route   GET /api/exams/categories/my-joined
+// @access  Private/Student
+const getMyJoinedCategories = asyncHandler(async (req, res) => {
+    const categories = await Category.find({ students: req.user._id })
+        .populate('createdBy', 'firstName lastName email');
+    res.json(categories);
+});
+
+// @desc    Get students in a category
+// @route   GET /api/exams/categories/:id/students
+// @access  Private/Teacher
+const getCategoryStudents = asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id)
+        .populate('students', 'firstName lastName email phoneNumber');
+
+    if (!category) {
+        res.status(404);
+        throw new Error('Category not found');
+    }
+
+    // Owner check (or bypass superadmin)
+    if (category.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+        res.status(403);
+        throw new Error('Not authorized');
+    }
+
+    res.json(category.students || []);
+});
+
+// @desc    Add a student to a category manually (search by email, studentId, etc.)
+// @route   POST /api/exams/categories/:id/students
+// @access  Private/Teacher
+const addStudentToCategoryManual = asyncHandler(async (req, res) => {
+    const { searchQuery } = req.body;
+    if (!searchQuery) {
+        res.status(400);
+        throw new Error('กรุณาระบุข้อมูลสำหรับค้นหา (รหัสนิสิต/อีเมล/ชื่อ/เบอร์โทร)');
+    }
+
+    const category = await Category.findById(req.params.id);
+    if (!category) {
+        res.status(404);
+        throw new Error('Category not found');
+    }
+
+    // Owner check
+    if (category.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+        res.status(403);
+        throw new Error('Not authorized');
+    }
+
+    // Find student. We support email, prefix (student ID in email), firstName, lastName, phoneNumber
+    const searchRegex = new RegExp(searchQuery.trim(), 'i');
+    const student = await User.findOne({
+        role: 'student',
+        $or: [
+            { email: searchRegex },
+            { firstName: searchRegex },
+            { lastName: searchRegex },
+            { phoneNumber: searchRegex }
+        ]
+    });
+
+    if (!student) {
+        res.status(404);
+        throw new Error('ไม่พบข้อมูลนักเรียน/นิสิตในระบบ');
+    }
+
+    // Check if student is already in category
+    if (category.students.includes(student._id)) {
+        res.status(400);
+        throw new Error('นักเรียนคนนี้อยู่ในรายวิชานี้อยู่แล้ว');
+    }
+
+    category.students.push(student._id);
+    await category.save();
+
+    res.json({
+        message: 'เพิ่มนักเรียนสำเร็จ',
+        student: {
+            _id: student._id,
+            firstName: student.firstName,
+            lastName: student.lastName,
+            email: student.email,
+            phoneNumber: student.phoneNumber
+        }
+    });
+});
+
+// @desc    Remove a student from a category
+// @route   DELETE /api/exams/categories/:id/students/:studentId
+// @access  Private/Teacher
+const removeStudentFromCategory = asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id);
+    if (!category) {
+        res.status(404);
+        throw new Error('Category not found');
+    }
+
+    // Owner check
+    if (category.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+        res.status(403);
+        throw new Error('Not authorized');
+    }
+
+    category.students = category.students.filter(
+        (s) => s.toString() !== req.params.studentId.toString()
+    );
+    await category.save();
+
+    res.json({ message: 'ลบนักเรียนออกจากรายวิชาสำเร็จ' });
+});
+
 module.exports = {
     createExam,
     getExams,
@@ -215,4 +368,9 @@ module.exports = {
     getDistinctCategories,
     createCategory,
     deleteCategory,
+    joinCategory,
+    getMyJoinedCategories,
+    getCategoryStudents,
+    addStudentToCategoryManual,
+    removeStudentFromCategory,
 };

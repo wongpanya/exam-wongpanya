@@ -4,6 +4,7 @@ const ExamSession = require('../models/examSessionModel');
 const ExamAttempt = require('../models/examAttemptModel');
 const CheatingLog = require('../models/cheatingLogModel');
 const User = require('../models/userModel');
+const Category = require('../models/categoryModel');
 const { generateQRToken, parseQRToken, verifyQRToken } = require('../utils/qrToken');
 const cheatTracker = require('../utils/cheatTracker');
 const { getIO } = require('../config/socket');
@@ -249,6 +250,19 @@ const joinExam = asyncHandler(async (req, res) => {
         throw new Error('Session is not active');
     }
 
+    // Check Category enrollment restriction
+    const exam = await Exam.findById(session.exam).populate('category');
+    if (exam.category && exam.category.name !== 'ทั่วไป') {
+        const category = await Category.findById(exam.category._id);
+        if (category) {
+            const isEnrolled = category.students.some(s => s.toString() === req.user._id.toString());
+            if (!isEnrolled) {
+                res.status(403);
+                throw new Error('คุณไม่มีสิทธิ์เข้าทำข้อสอบวิชานี้ เนื่องจากยังไม่ได้เข้าร่วมรายวิชา กรุณาติดต่ออาจารย์ผู้สอน');
+            }
+        }
+    }
+
     // Check existing attempt
     let attempt = await ExamAttempt.findOne({
         session: session._id,
@@ -335,6 +349,19 @@ const joinExamByCode = asyncHandler(async (req, res) => {
     if (!session) {
         res.status(400);
         throw new Error('รหัสเข้าสอบไม่ถูกต้อง หรือหมดอายุแล้ว');
+    }
+
+    // Check Category enrollment restriction
+    const exam = await Exam.findById(session.exam).populate('category');
+    if (exam.category && exam.category.name !== 'ทั่วไป') {
+        const category = await Category.findById(exam.category._id);
+        if (category) {
+            const isEnrolled = category.students.some(s => s.toString() === req.user._id.toString());
+            if (!isEnrolled) {
+                res.status(403);
+                throw new Error('คุณไม่มีสิทธิ์เข้าทำข้อสอบวิชานี้ เนื่องจากยังไม่ได้เข้าร่วมรายวิชา กรุณาติดต่ออาจารย์ผู้สอน');
+            }
+        }
     }
 
     // Check existing attempt

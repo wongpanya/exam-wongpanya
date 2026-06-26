@@ -15,9 +15,13 @@ import {
     ChevronRight, 
     Plus, 
     X, 
-    Move 
+    Move,
+    Users,
+    QrCode,
+    GraduationCap
 } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
+import { QRCodeSVG } from 'qrcode.react';
 
 const ExamList = () => {
     const navigate = useNavigate();
@@ -32,6 +36,14 @@ const ExamList = () => {
     // Inline category creation
     const [isCreatingCat, setIsCreatingCat] = useState(false);
     const [newCatName, setNewCatName] = useState('');
+
+    // Category student enrollment management states
+    const [activeTab, setActiveTab] = useState('exams');
+    const [categoryStudents, setCategoryStudents] = useState([]);
+    const [studentsLoading, setStudentsLoading] = useState(false);
+    const [manualSearchQuery, setManualSearchQuery] = useState('');
+    const [addingStudent, setAddingStudent] = useState(false);
+    const [showQRCodeModal, setShowQRCodeModal] = useState(false);
     
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -68,6 +80,87 @@ const ExamList = () => {
     useEffect(() => {
         fetchExamsAndCategories();
     }, []);
+
+    // Reset activeTab when categoryId changes
+    useEffect(() => {
+        setActiveTab('exams');
+    }, [categoryId]);
+
+    // Fetch students when categoryId or activeTab is students
+    useEffect(() => {
+        if (categoryId && activeTab === 'students') {
+            fetchCategoryStudents();
+        }
+    }, [categoryId, activeTab]);
+
+    const fetchCategoryStudents = async () => {
+        if (!categoryId) return;
+        setStudentsLoading(true);
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: { Authorization: `Bearer ${user.token}` },
+            };
+            const { data } = await api.get(`/exams/categories/${categoryId}/students`, config);
+            setCategoryStudents(data);
+        } catch (err) {
+            console.error('Failed to fetch category students:', err);
+            setError('ไม่สามารถดึงข้อมูลรายชื่อนักเรียนได้');
+        } finally {
+            setStudentsLoading(false);
+        }
+    };
+
+    const handleAddStudentManual = async (e) => {
+        e.preventDefault();
+        const query = manualSearchQuery.trim();
+        if (!query) return;
+
+        setAddingStudent(true);
+        setError('');
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: { Authorization: `Bearer ${user.token}` },
+            };
+            const { data } = await api.post(
+                `/exams/categories/${categoryId}/students`,
+                { searchQuery: query },
+                config
+            );
+            
+            // Add student locally
+            setCategoryStudents(prev => [...prev, data.student]);
+            setManualSearchQuery('');
+        } catch (err) {
+            setError(err.response?.data?.message || 'ไม่สามารถเพิ่มนักเรียนได้');
+        } finally {
+            setAddingStudent(false);
+        }
+    };
+
+    const handleRemoveStudent = async (studentId, studentName) => {
+        const ok = await showConfirm({
+            title: 'ลบนักเรียนออกจากรายวิชา',
+            message: `คุณต้องการลบ ${studentName} ออกจากรายวิชานี้ใช่หรือไม่?`,
+            confirmText: 'ลบออก',
+            variant: 'danger'
+        });
+        if (!ok) return;
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: { Authorization: `Bearer ${user.token}` },
+            };
+            await api.delete(`/exams/categories/${categoryId}/students/${studentId}`, config);
+            
+            // Remove student locally
+            setCategoryStudents(prev => prev.filter(s => s._id !== studentId));
+        } catch (err) {
+            setError(err.response?.data?.message || 'ไม่สามารถลบนักเรียนได้');
+        }
+    };
 
     const handleDelete = async (id) => {
         const ok = await showConfirm({ 
@@ -427,126 +520,285 @@ const ExamList = () => {
                 </div>
             )}
 
-            {/* 2. Exams Section */}
-            <div className="space-y-3">
-                <h2 className="text-lg font-bold text-gray-800">
-                    {categoryId 
-                        ? `รายการข้อสอบใน ${currentFolder || ''}` 
-                        : 'ข้อสอบทั่วไป (ยังไม่มีหมวดหมู่ / ลากไปวางในหมวดหมู่ด้านบนได้)'
-                    }
-                </h2>
+            {/* Tab Navigation (Only in category detail view) */}
+            {categoryId && (
+                <div className="flex border-b border-gray-200 gap-2 mb-2">
+                    <button
+                        onClick={() => setActiveTab('exams')}
+                        className={`py-2.5 px-5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2
+                            ${activeTab === 'exams'
+                                ? 'border-indigo-600 text-indigo-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                    >
+                        <FileText size={18} />
+                        ข้อสอบในหมวดหมู่
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('students')}
+                        className={`py-2.5 px-5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2
+                            ${activeTab === 'students'
+                                ? 'border-indigo-600 text-indigo-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                    >
+                        <Users size={18} />
+                        จัดการนักเรียน ({categoryStudents.length})
+                    </button>
+                </div>
+            )}
 
-                {filteredExams.length === 0 ? (
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-                        <FileText className="mx-auto text-gray-300 mb-4" size={48} />
-                        <h3 className="text-base font-semibold text-gray-600">
-                            {categoryId ? 'หมวดหมู่นี้ยังไม่มีข้อสอบ' : 'ยังไม่มีข้อสอบทั่วไป'}
-                        </h3>
-                        <p className="text-sm text-gray-400 mt-1">
-                            {categoryId 
-                                ? 'ลากข้อสอบทั่วไปใส่โฟลเดอร์นี้เพื่อบันทึกข้อสอบ' 
-                                : 'ข้อสอบทั้งหมดมีหมวดหมู่แล้ว หรือยังไม่มีการสร้างข้อสอบ'
-                            }
-                        </p>
+            {/* 2. Main Content Section (Exams List OR Student List) */}
+            {categoryId && activeTab === 'students' ? (
+                <div className="space-y-6">
+                    {/* PIN & QR Code Section */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div className="space-y-2">
+                            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">รหัสเข้าร่วมรายวิชา (PIN)</h3>
+                            <div className="flex items-center gap-3">
+                                <span className="font-mono text-3xl font-extrabold text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl tracking-widest uppercase animate-pulse">
+                                    {currentCategory?.joinCode 
+                                        ? `${currentCategory.joinCode.slice(0, 3)} ${currentCategory.joinCode.slice(3)}` 
+                                        : '------'
+                                    }
+                                </span>
+                                <button
+                                    onClick={() => setShowQRCodeModal(true)}
+                                    className="px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition flex items-center gap-1.5"
+                                >
+                                    <QrCode size={16} /> แสดง QR Code
+                                </button>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                ให้นักเรียนสแกน QR Code หรือกรอกรหัส PIN 6 หลักนี้ในหน้า "เข้าร่วมรายวิชา" เพื่อลงทะเบียนเรียน
+                            </p>
+                        </div>
                     </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                        {filteredExams.map((exam) => (
-                            <div
-                                key={exam._id}
-                                draggable={!categoryId}
-                                onDragStart={(e) => handleDragStart(e, exam._id)}
-                                className={`bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all overflow-hidden relative select-none
-                                    ${!categoryId 
-                                        ? 'cursor-grab active:cursor-grabbing border-l-4 border-l-indigo-500 hover:border-l-indigo-600' 
-                                        : ''
-                                    }`}
+
+                    {/* Manual Add Student Form */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
+                        <h3 className="text-base font-bold text-gray-900">เพิ่มนักเรียนเข้าชั้นเรียนด้วยตัวเอง</h3>
+                        <form onSubmit={handleAddStudentManual} className="flex gap-3 max-w-lg">
+                            <input
+                                type="text"
+                                placeholder="กรอกรหัสนิสิต, อีเมล, หรือชื่อนักเรียน..."
+                                value={manualSearchQuery}
+                                onChange={(e) => setManualSearchQuery(e.target.value)}
+                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
+                                required
+                            />
+                            <button
+                                type="submit"
+                                disabled={addingStudent}
+                                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition disabled:opacity-50 flex items-center gap-1"
                             >
-                                <div className="p-5 space-y-3">
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                {!categoryId && (
-                                                    <span className="text-gray-400 mr-0.5 flex items-center" title="ลากเพื่อย้ายหมวดหมู่">
-                                                        <Move size={12} />
-                                                    </span>
-                                                )}
-                                                <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                                                    {exam.examId}
-                                                </span>
-                                                <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100 flex items-center gap-1">
-                                                    <span className="w-1 h-1 rounded-full bg-purple-400"></span>
-                                                    {exam.category ? exam.category.name : 'ทั่วไป'}
-                                                </span>
-                                            </div>
-                                            <h3 className="text-lg font-semibold text-gray-900 mt-1 truncate">
-                                                {exam.title}
-                                            </h3>
-                                        </div>
-                                    </div>
+                                <Plus size={16} /> {addingStudent ? 'กำลังค้นหา...' : 'เพิ่ม'}
+                            </button>
+                        </form>
+                    </div>
 
-                                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                                        <div className="flex items-center gap-1">
-                                            <FileText size={14} />
-                                            <span>{exam.questions.length} ข้อ</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <Clock size={14} />
-                                            <span>{exam.durationMin} นาที</span>
-                                        </div>
-                                    </div>
+                    {/* Students List */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
+                        <h3 className="text-base font-bold text-gray-900">นักเรียนในชั้นเรียนทั้งหมด ({categoryStudents.length} คน)</h3>
+                        {studentsLoading ? (
+                            <div className="flex justify-center py-8">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                            </div>
+                        ) : categoryStudents.length === 0 ? (
+                            <p className="text-center py-8 text-gray-400 text-sm">ยังไม่มีนักเรียนในรายวิชานี้</p>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left text-gray-600">
+                                    <thead className="text-xs text-gray-400 uppercase bg-gray-50/70 border-b border-gray-100">
+                                        <tr>
+                                            <th className="px-6 py-3 font-semibold">ชื่อ - นามสกุล</th>
+                                            <th className="px-6 py-3 font-semibold">อีเมล (รหัสนิสิต)</th>
+                                            <th className="px-6 py-3 font-semibold">เบอร์โทรศัพท์</th>
+                                            <th className="px-6 py-3 font-semibold text-right">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {categoryStudents.map((student) => (
+                                            <tr key={student._id} className="hover:bg-gray-50/50 transition">
+                                                <td className="px-6 py-4 font-medium text-gray-900">
+                                                    {student.title}{student.firstName} {student.lastName}
+                                                </td>
+                                                <td className="px-6 py-4 font-mono text-xs">{student.email}</td>
+                                                <td className="px-6 py-4">{student.phoneNumber || '-'}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button
+                                                        onClick={() => handleRemoveStudent(student._id, `${student.firstName} ${student.lastName}`)}
+                                                        className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition font-medium"
+                                                    >
+                                                        ลบออก
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
 
-                                    <div className="text-xs text-gray-400">
-                                        สร้างเมื่อ: {new Date(exam.createdAt).toLocaleDateString('th-TH', {
-                                            year: 'numeric',
-                                            month: 'long',
-                                            day: 'numeric',
-                                        })}
-                                    </div>
+                    {/* QR Code Modal */}
+                    {showQRCodeModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl border border-gray-100 relative text-center">
+                                <button
+                                    onClick={() => setShowQRCodeModal(false)}
+                                    className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 rounded-md transition"
+                                >
+                                    <X size={20} />
+                                </button>
+                                <div className="space-y-1">
+                                    <h3 className="text-lg font-bold text-gray-950">QR Code เข้าร่วมชั้นเรียน</h3>
+                                    <p className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full inline-block font-semibold">
+                                        วิชา: {currentFolder}
+                                    </p>
                                 </div>
-
-                                <div className="border-t border-gray-100 px-5 py-3 bg-gray-50 flex justify-between items-center gap-2">
-                                    {/* Show Move back to General only if inside a custom category folder */}
-                                    {categoryId ? (
-                                        <button
-                                            onClick={() => handleMoveToGeneral(exam._id)}
-                                            className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200 bg-gray-100 rounded-lg transition flex items-center gap-1.5 font-medium"
-                                            title="ย้ายข้อสอบออกไปยังข้อสอบทั่วไป"
-                                        >
-                                            <FolderOpen size={14} /> ย้ายออกไปทั่วไป
-                                        </button>
-                                    ) : (
-                                        <span className="text-[11px] text-gray-400 hidden sm:inline flex-shrink-0">
-                                            ลากเพื่อย้าย
-                                        </span>
-                                    )}
-
-                                    <div className="flex gap-1.5 ml-auto">
-                                        <button
-                                            onClick={() => navigate(`/teacher/exams/${exam._id}`)}
-                                            className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition flex items-center gap-1"
-                                        >
-                                            <Eye size={14} /> ดูรายละเอียด
-                                        </button>
-                                        <button
-                                            onClick={() => navigate(`/teacher/exams/${exam._id}/edit`)}
-                                            className="px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 rounded-lg transition flex items-center gap-1"
-                                        >
-                                            <Pencil size={14} /> แก้ไข
-                                        </button>
-                                        <button
-                                            onClick={() => handleDelete(exam._id)}
-                                            className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition flex items-center gap-1"
-                                        >
-                                            <Trash2 size={14} /> ลบ
-                                        </button>
-                                    </div>
+                                <div className="bg-gray-50 p-4 rounded-2xl inline-block border border-gray-100 mx-auto">
+                                    <QRCodeSVG
+                                        value={`${window.location.origin}/student/join?code=${currentCategory?.joinCode}`}
+                                        size={200}
+                                        level="H"
+                                    />
+                                </div>
+                                <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 space-y-1">
+                                    <p className="text-xs text-gray-500 font-semibold">หรือใช้รหัสเข้าร่วม</p>
+                                    <p className="font-mono text-2xl font-black text-indigo-700 tracking-widest uppercase">
+                                        {currentCategory?.joinCode 
+                                            ? `${currentCategory.joinCode.slice(0, 3)} ${currentCategory.joinCode.slice(3)}` 
+                                            : '------'
+                                        }
+                                    </p>
                                 </div>
                             </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                /* 2. Exams Section */
+                <div className="space-y-3">
+                    <h2 className="text-lg font-bold text-gray-800">
+                        {categoryId 
+                            ? `รายการข้อสอบใน ${currentFolder || ''}` 
+                            : 'ข้อสอบทั่วไป (ยังไม่มีหมวดหมู่ / ลากไปวางในหมวดหมู่ด้านบนได้)'
+                        }
+                    </h2>
+
+                    {filteredExams.length === 0 ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                            <FileText className="mx-auto text-gray-300 mb-4" size={48} />
+                            <h3 className="text-base font-semibold text-gray-600">
+                                {categoryId ? 'หมวดหมู่นี้ยังไม่มีข้อสอบ' : 'ยังไม่มีข้อสอบทั่วไป'}
+                            </h3>
+                            <p className="text-sm text-gray-400 mt-1">
+                                {categoryId 
+                                    ? 'ลากข้อสอบทั่วไปใส่โฟลเดอร์นี้เพื่อบันทึกข้อสอบ' 
+                                    : 'ข้อสอบทั้งหมดมีหมวดหมู่แล้ว หรือยังไม่มีการสร้างข้อสอบ'
+                                }
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {filteredExams.map((exam) => (
+                                <div
+                                    key={exam._id}
+                                    draggable={!categoryId}
+                                    onDragStart={(e) => handleDragStart(e, exam._id)}
+                                    className={`bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all overflow-hidden relative select-none
+                                        ${!categoryId 
+                                            ? 'cursor-grab active:cursor-grabbing border-l-4 border-l-indigo-500 hover:border-l-indigo-600' 
+                                            : ''
+                                        }`}
+                                >
+                                    <div className="p-5 space-y-3">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                    {!categoryId && (
+                                                        <span className="text-gray-400 mr-0.5 flex items-center" title="ลากเพื่อย้ายหมวดหมู่">
+                                                            <Move size={12} />
+                                                        </span>
+                                                    )}
+                                                    <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                                                        {exam.examId}
+                                                    </span>
+                                                    <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100 flex items-center gap-1">
+                                                        <span className="w-1 h-1 rounded-full bg-purple-400"></span>
+                                                        {exam.category ? exam.category.name : 'ทั่วไป'}
+                                                    </span>
+                                                </div>
+                                                <h3 className="text-lg font-semibold text-gray-900 mt-1 truncate">
+                                                    {exam.title}
+                                                </h3>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                                            <div className="flex items-center gap-1">
+                                                <FileText size={14} />
+                                                <span>{exam.questions.length} ข้อ</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <Clock size={14} />
+                                                <span>{exam.durationMin} นาที</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="text-xs text-gray-400">
+                                            สร้างเมื่อ: {new Date(exam.createdAt).toLocaleDateString('th-TH', {
+                                                year: 'numeric',
+                                                month: 'long',
+                                                day: 'numeric',
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="border-t border-gray-100 px-5 py-3 bg-gray-50 flex justify-between items-center gap-2">
+                                        {/* Show Move back to General only if inside a custom category folder */}
+                                        {categoryId ? (
+                                            <button
+                                                onClick={() => handleMoveToGeneral(exam._id)}
+                                                className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200 bg-gray-100 rounded-lg transition flex items-center gap-1.5 font-medium"
+                                                title="ย้ายข้อสอบออกไปยังข้อสอบทั่วไป"
+                                            >
+                                                <FolderOpen size={14} /> ย้ายออกไปทั่วไป
+                                            </button>
+                                        ) : (
+                                            <span className="text-[11px] text-gray-400 hidden sm:inline flex-shrink-0">
+                                                ลากเพื่อย้าย
+                                            </span>
+                                        )}
+
+                                        <div className="flex gap-1.5 ml-auto">
+                                            <button
+                                                onClick={() => navigate(`/teacher/exams/${exam._id}`)}
+                                                className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition flex items-center gap-1"
+                                            >
+                                                <Eye size={14} /> ดูรายละเอียด
+                                            </button>
+                                            <button
+                                                onClick={() => navigate(`/teacher/exams/${exam._id}/edit`)}
+                                                className="px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 rounded-lg transition flex items-center gap-1"
+                                            >
+                                                <Pencil size={14} /> แก้ไข
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(exam._id)}
+                                                className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition flex items-center gap-1"
+                                            >
+                                                <Trash2 size={14} /> ลบ
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
