@@ -1,7 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle } from 'lucide-react';
-import CategoryTutorialModal from './CategoryTutorialModal';
 
 const TeacherLayout = () => {
     const navigate = useNavigate();
@@ -78,28 +77,8 @@ const TeacherLayout = () => {
 
     if (!user) return null;
 
-    const showCategoryTutorial = user.role === 'teacher' && !user.seenTutorials?.includes('exam_category');
-
     return (
         <div className="flex min-h-screen bg-gray-50">
-            {showCategoryTutorial && (
-                <CategoryTutorialModal
-                    user={user}
-                    onClose={(updatedUser) => {
-                        if (updatedUser) {
-                            setUser(updatedUser);
-                        } else {
-                            const currentSeen = user.seenTutorials || [];
-                            setUser({ 
-                                ...user, 
-                                seenTutorials: currentSeen.includes('exam_category') 
-                                    ? currentSeen 
-                                    : [...currentSeen, 'exam_category'] 
-                            });
-                        }
-                    }}
-                />
-            )}
             {/* Mobile Header */}
             {isMobile && (
                 <div className="fixed top-0 left-0 right-0 z-40 bg-gray-900 text-white h-14 flex items-center justify-between px-4 shadow-lg">
