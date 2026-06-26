@@ -70,6 +70,7 @@ app.get("/", (req, res) => {
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/exams", require("./routes/examRoutes"));
 app.use("/api/exam-sessions", require("./routes/examSessionRoutes"));
+app.use("/api/attendance", require("./routes/attendanceRoutes"));
 
 // Error middleware
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");

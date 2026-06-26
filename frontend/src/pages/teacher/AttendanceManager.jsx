@@ -1,0 +1,591 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { QrCode, Plus, Play, Pause, Trash2, Check, X, RefreshCw, Users, Clock, AlertCircle } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import api from '../../config/api';
+import { getSocket } from '../../config/socket';
+import { useDialog } from '../../components/DialogProvider';
+
+export default function AttendanceManager({ categoryId, categoryStudents = [] }) {
+    const navigate = useNavigate();
+    const { showConfirm } = useDialog();
+    const [sessions, setSessions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    
+    // Create session modal states
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newSessionName, setNewSessionName] = useState('');
+    const [newInterval, setNewInterval] = useState(10);
+    const [customInterval, setCustomInterval] = useState(15);
+    const [newCutoff, setNewCutoff] = useState('');
+    const [creating, setCreating] = useState(false);
+
+    // Active checking screen states
+    const [activeSession, setActiveSession] = useState(null);
+    const [qrToken, setQrToken] = useState('');
+    const [shortCode, setShortCode] = useState('');
+    const [timeLeft, setTimeLeft] = useState(10);
+    const [reopenInterval, setReopenInterval] = useState(10);
+    const [checkingLogs, setCheckingLogs] = useState([]);
+    const [isCheckingActive, setIsCheckingActive] = useState(true);
+    const [refreshingLogs, setRefreshingLogs] = useState(false);
+
+    const timerRef = useRef(null);
+
+    // Get Auth Config
+    const getConfig = () => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        return {
+            headers: { Authorization: `Bearer ${user.token}` },
+        };
+    };
+
+    // Fetch all attendance sessions
+    const fetchSessions = useCallback(async () => {
+        try {
+            setLoading(true);
+            const { data } = await api.get(`/attendance/category/${categoryId}`, getConfig());
+            setSessions(data);
+        } catch (err) {
+            console.error('Failed to fetch attendance sessions:', err);
+        } finally {
+            setLoading(false);
+        }
+    }, [categoryId]);
+
+    useEffect(() => {
+        fetchSessions();
+    }, [fetchSessions]);
+
+    // Create a new session
+    const handleCreateSession = async (e) => {
+        e.preventDefault();
+        if (!newSessionName.trim() || creating) return;
+
+        try {
+            setCreating(true);
+            const finalInterval = newInterval === 'custom' ? customInterval : Number(newInterval);
+            const formattedCutoff = newCutoff ? new Date(newCutoff).toISOString() : null;
+            const { data } = await api.post(
+                '/attendance',
+                {
+                    categoryId,
+                    name: newSessionName.trim(),
+                    qrRotateInterval: finalInterval,
+                    absentCutoffAt: formattedCutoff
+                },
+                getConfig()
+            );
+            
+            setShowCreateModal(false);
+            setNewSessionName('');
+            setNewInterval(10);
+            setCustomInterval(15);
+            setNewCutoff('');
+            fetchSessions();
+            
+            // Auto open the newly created session
+            handleOpenChecking(data);
+        } catch (err) {
+            console.error('Failed to create attendance session:', err);
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    // Delete attendance session
+    const handleDeleteSession = async (id, name) => {
+        const confirmed = await showConfirm(`คุณต้องการลบรายการเช็คชื่อ "${name}" ใช่หรือไม่?`);
+        if (!confirmed) return;
+
+        try {
+            await api.delete(`/attendance/${id}`, getConfig());
+            fetchSessions();
+        } catch (err) {
+            console.error('Failed to delete attendance session:', err);
+        }
+    };
+
+    // Force rotate PIN & Token
+    const rotateCode = useCallback(async (sessionId) => {
+        try {
+            const { data } = await api.post(`/attendance/${sessionId}/rotate`, {}, getConfig());
+            setQrToken(data.token);
+            setShortCode(data.shortCode);
+        } catch (err) {
+            console.error('Failed to rotate code:', err);
+        }
+    }, []);
+
+    // Fetch checking logs manually
+    const fetchCheckingLogs = useCallback(async (sessionId) => {
+        try {
+            setRefreshingLogs(true);
+            const { data } = await api.get(`/attendance/${sessionId}`, getConfig());
+            setCheckingLogs(data.records || []);
+            setIsCheckingActive(data.status === 'active');
+            if (data.status === 'active') {
+                rotateCode(sessionId);
+            }
+        } catch (err) {
+            console.error('Failed to fetch logs:', err);
+        } finally {
+            setRefreshingLogs(false);
+        }
+    }, [rotateCode]);
+
+    // Open active checking screen
+    const handleOpenChecking = (session) => {
+        setActiveSession(session);
+        setCheckingLogs([]); // Clear logs and fetch fresh populated ones
+        setIsCheckingActive(session.status === 'active');
+        setTimeLeft(session.qrRotateInterval);
+        setReopenInterval(session.qrRotateInterval);
+        
+        // Fetch fully populated logs
+        fetchCheckingLogs(session._id);
+
+        // Connect socket for real-time check-ins
+        const socket = getSocket();
+        if (socket) {
+            socket.emit('join-session', session._id);
+            socket.on('student-checked-in', (record) => {
+                setCheckingLogs((prev) => {
+                    const studentId = record.student?._id || record.student;
+                    if (prev.some((r) => (r.student?._id || r.student) === studentId)) return prev;
+                    return [record, ...prev];
+                });
+            });
+        }
+    };
+
+    // Handle Active Checking Rotation Interval
+    useEffect(() => {
+        if (activeSession && isCheckingActive) {
+            timerRef.current = setInterval(() => {
+                setTimeLeft((prev) => {
+                    if (prev <= 1) {
+                        rotateCode(activeSession._id);
+                        return activeSession.qrRotateInterval;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        }
+
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
+    }, [activeSession, isCheckingActive, rotateCode]);
+
+    // Close active checking screen
+    const handleCloseChecking = () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        
+        const socket = getSocket();
+        if (socket && activeSession) {
+            socket.emit('leave-session', activeSession._id);
+            socket.off('student-checked-in');
+        }
+
+        setActiveSession(null);
+        setQrToken('');
+        setShortCode('');
+        fetchSessions();
+    };
+
+    // Toggle active/closed status
+    const handleToggleCheckingStatus = async () => {
+        if (!activeSession) return;
+        const newStatus = isCheckingActive ? 'closed' : 'active';
+        
+        try {
+            const { data } = await api.post(
+                `/attendance/${activeSession._id}/status`,
+                { status: newStatus },
+                getConfig()
+            );
+            
+            setIsCheckingActive(newStatus === 'active');
+            if (newStatus === 'active') {
+                setTimeLeft(data.qrRotateInterval);
+                rotateCode(activeSession._id);
+            } else {
+                setShortCode('');
+                setQrToken('');
+                if (timerRef.current) clearInterval(timerRef.current);
+            }
+        } catch (err) {
+            console.error('Failed to toggle checking status:', err);
+        }
+    };
+
+    // Update rotation duration for re-opening
+    const handleUpdateInterval = async (seconds) => {
+        if (!activeSession) return;
+        try {
+            const { data } = await api.post(
+                `/attendance/${activeSession._id}/status`,
+                { status: 'active', qrRotateInterval: seconds },
+                getConfig()
+            );
+            
+            activeSession.qrRotateInterval = seconds;
+            setIsCheckingActive(true);
+            setTimeLeft(seconds);
+            rotateCode(activeSession._id);
+        } catch (err) {
+            console.error('Failed to change interval:', err);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Header & Create Button */}
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+                <div>
+                    <h2 className="text-lg font-bold text-gray-900 font-sans">เช็คชื่อเข้าเรียน</h2>
+                    <p className="text-xs text-gray-500 font-sans">สร้างรายการเช็คชื่อ เปิดสแกน QR Code หรือป้อนรหัส 6 หลัก</p>
+                </div>
+                <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm flex items-center gap-1.5 transition shadow-sm font-sans"
+                >
+                    <Plus size={16} /> สร้างรายการเช็คชื่อ
+                </button>
+            </div>
+
+            {/* Attendance Sessions List */}
+            {loading ? (
+                <div className="flex justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                </div>
+            ) : sessions.length === 0 ? (
+                <div className="bg-white rounded-xl border border-gray-150 p-12 text-center">
+                    <Users className="mx-auto text-gray-300 mb-3" size={48} />
+                    <h3 className="text-sm font-bold text-gray-700 font-sans">ยังไม่มีรายการเช็คชื่อเข้าเรียน</h3>
+                    <p className="text-xs text-gray-400 mt-1 mb-4 font-sans">เริ่มต้นเช็คชื่อนิสิตเพื่อบันทึกประวัติการเข้าชั้นเรียน</p>
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition font-sans"
+                    >
+                        สร้างการเช็คชื่อรายการแรก
+                    </button>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {sessions.map((sess) => (
+                        <div
+                            key={sess._id}
+                            className="bg-white border border-gray-100 hover:border-indigo-100 hover:shadow-sm rounded-xl p-5 transition flex flex-col justify-between gap-4"
+                        >
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="font-bold text-gray-900 text-base font-sans">{sess.name}</h4>
+                                    <span
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border font-sans ${
+                                            sess.status === 'active'
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                                : 'bg-gray-100 text-gray-600 border-gray-200'
+                                        }`}
+                                    >
+                                        {sess.status === 'active' ? 'กำลังเปิดอยู่' : 'ปิดแล้ว'}
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-gray-400 font-sans">
+                                    วันที่สร้าง: {new Date(sess.createdAt).toLocaleDateString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                                {sess.absentCutoffAt && (
+                                    <p className="text-[11px] text-red-500 font-sans flex items-center gap-1">
+                                        <Clock size={11} />
+                                        หมดเขตเช็คชื่อ: {new Date(sess.absentCutoffAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex items-center justify-between text-xs pt-3 border-t border-gray-50 font-sans font-semibold">
+                                <span className="text-gray-500 font-sans">
+                                    เช็คชื่อแล้ว: {sess.records?.filter(r => r.status !== 'absent').length || 0} / {categoryStudents.length} คน
+                                </span>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleOpenChecking(sess)}
+                                        className="px-2.5 py-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg font-bold transition flex items-center gap-1 font-sans"
+                                    >
+                                        <QrCode size={14} /> เปิดจอเช็ค
+                                    </button>
+                                    <button
+                                        onClick={() => navigate(`/teacher/attendance/${sess._id}`)}
+                                        className="px-2.5 py-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg font-bold transition flex items-center gap-1 font-sans"
+                                    >
+                                        <Users size={14} /> ดูสรุป/แก้ไข
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteSession(sess._id, sess.name)}
+                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                    >
+                                        <Trash2 size={15} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* 1. Create Session Modal */}
+            {showCreateModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <form onSubmit={handleCreateSession} className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl border border-gray-150">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-900 font-sans">สร้างรายการเช็คชื่อใหม่</h3>
+                            <p className="text-xs text-gray-400 font-sans">ระบุชื่อรายการและเวลาที่ต้องการให้หมุนรหัส</p>
+                        </div>
+                        <div className="space-y-3 font-sans">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-600 mb-1">ชื่อรายการ (เช่น คาบเรียนที่ 1, สัปดาห์ที่ 2)</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={newSessionName}
+                                    onChange={(e) => setNewSessionName(e.target.value)}
+                                    placeholder="คาบเรียนที่ 1"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-sans"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-600 mb-1 font-sans">ความถี่ในการหมุนเปลี่ยนรหัส QR (วินาที)</label>
+                                <select
+                                    value={newInterval}
+                                    onChange={(e) => setNewInterval(e.target.value === 'custom' ? 'custom' : Number(e.target.value))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-sans"
+                                >
+                                    <option value={10}>10 วินาที (แนะนำ - ปลอดภัยสูงสุด)</option>
+                                    <option value={20}>20 วินาที</option>
+                                    <option value={30}>30 วินาที</option>
+                                    <option value={60}>60 วินาที</option>
+                                    <option value="custom font-sans">กำหนดเอง...</option>
+                                </select>
+                            </div>
+                            {newInterval === 'custom' && (
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1 font-sans">ระบุจำนวนวินาทีที่ต้องการ (ขั้นต่ำ 5 วินาที)</label>
+                                    <input
+                                        type="number"
+                                        min={5}
+                                        max={3600}
+                                        value={customInterval}
+                                        onChange={(e) => setCustomInterval(Math.max(5, Number(e.target.value)))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-sans"
+                                        required
+                                    />
+                                </div>
+                            )}
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-600 mb-1 font-sans">เวลาหมดเขตการเช็คชื่อ (เช็คสายอัตโนมัติหากเลยเวลา - เลือกได้)</label>
+                                <input
+                                    type="datetime-local"
+                                    value={newCutoff}
+                                    onChange={(e) => setNewCutoff(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white font-sans"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex gap-2 pt-2 font-sans">
+                            <button
+                                type="submit"
+                                disabled={creating}
+                                className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm transition disabled:opacity-50 font-sans"
+                            >
+                                {creating ? 'กำลังบันทึก...' : 'ตกลง'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setShowCreateModal(false); setNewSessionName(''); }}
+                                className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-semibold text-sm transition font-sans"
+                            >
+                                ยกเลิก
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {/* 2. Active Checking Modal (Rotating QR & Sockets) */}
+            {activeSession && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+                    <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-gray-200 overflow-hidden flex flex-col md:flex-row min-h-[500px] relative">
+                        <button
+                            onClick={handleCloseChecking}
+                            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition z-20"
+                            title="ปิดหน้าจอ"
+                        >
+                            <X size={20} />
+                        </button>
+                        
+                        {/* Display side (QR Code & Control) */}
+                        <div className="flex-1 p-6 md:p-8 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50/50 space-y-6">
+                            <div className="text-center space-y-1">
+                                <h3 className="text-xl font-bold text-gray-900 font-sans">{activeSession.name}</h3>
+                                <div className="flex items-center justify-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${isCheckingActive ? 'bg-green-500 animate-ping' : 'bg-red-400'}`} />
+                                    <p className={`text-xs font-semibold font-sans ${isCheckingActive ? 'text-green-600' : 'text-red-500'}`}>
+                                        {isCheckingActive ? 'เปิดเช็คชื่ออยู่' : 'ปิดการเช็คชื่อชั่วคราว'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Rotating Code & QR */}
+                            {isCheckingActive ? (
+                                <>
+                                    <div className="bg-white p-6 rounded-3xl shadow-md border border-gray-100">
+                                        <QRCodeSVG
+                                            value={`${window.location.origin}/student/join?code=${qrToken}`}
+                                            size={220}
+                                            level="Q"
+                                        />
+                                    </div>
+                                    <div className="text-center space-y-1 font-sans">
+                                        <p className="text-xs text-gray-400 font-bold uppercase tracking-wider font-sans">รหัสเข้าเรียนหมุนเวียน</p>
+                                        <p className="font-mono text-4xl font-black text-indigo-600 tracking-widest bg-indigo-50 px-5 py-2.5 rounded-2xl animate-pulse">
+                                            {shortCode ? `${shortCode.slice(0, 3)} ${shortCode.slice(3)}` : '--- ---'}
+                                        </p>
+                                    </div>
+                                    {/* Timer */}
+                                    <div className="w-full max-w-xs space-y-1.5 font-sans">
+                                        <div className="flex justify-between text-xs text-gray-400 font-sans">
+                                            <span>สลับรหัสถัดไป</span>
+                                            <span className="font-bold font-mono text-indigo-600">{timeLeft} วินาที</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                                            <div
+                                                className="bg-indigo-600 h-2 transition-all duration-1000"
+                                                style={{ width: `${(timeLeft / activeSession.qrRotateInterval) * 100}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="bg-white rounded-3xl p-8 border border-gray-150 shadow-sm text-center max-w-sm space-y-4 my-8">
+                                    <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto text-red-500">
+                                        <Pause size={32} />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-800 text-sm font-sans">การเช็คชื่อถูกปิดใช้งานชั่วคราว</h4>
+                                        <p className="text-xs text-gray-400 mt-1 font-sans">นิสิตจะไม่สามารถใช้ QR หรือ PIN ชุดเดิมในการเช็คชื่อได้</p>
+                                    </div>
+                                    <div className="pt-2 border-t border-gray-50 flex flex-col gap-2 font-sans">
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase text-left mt-1 font-sans">ระบุเวลาหมุนใหม่เพื่อเปิดอีกครั้ง (วินาที)</p>
+                                        <div className="flex gap-2 justify-center max-w-xs mx-auto">
+                                            <input
+                                                type="number"
+                                                min={5}
+                                                max={3600}
+                                                value={reopenInterval}
+                                                onChange={(e) => setReopenInterval(Math.max(5, Number(e.target.value)))}
+                                                className="px-3 py-1.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs w-24 text-center font-sans"
+                                                required
+                                            />
+                                            <button
+                                                onClick={() => handleUpdateInterval(reopenInterval)}
+                                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex-1 font-sans"
+                                            >
+                                                เปิดใช้งานใหม่
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Session control buttons */}
+                            <div className="flex gap-2 w-full max-w-md border-t border-gray-100 pt-6 font-sans">
+                                <button
+                                    onClick={handleToggleCheckingStatus}
+                                    className={`flex-1 px-4 py-2.5 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 ${
+                                        isCheckingActive
+                                            ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-250 font-sans'
+                                            : 'bg-emerald-600 hover:bg-emerald-700 text-white font-sans'
+                                    }`}
+                                >
+                                    {isCheckingActive ? (
+                                        <>
+                                            <Pause size={14} /> ปิดชั่วคราว
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Play size={14} /> เปิดเช็คชื่อต่อ
+                                        </>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => fetchCheckingLogs(activeSession._id)}
+                                    disabled={refreshingLogs}
+                                    className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold text-xs transition flex items-center gap-1 font-sans"
+                                >
+                                    <RefreshCw size={14} className={refreshingLogs ? 'animate-spin' : ''} /> รีเฟรช
+                                </button>
+                                <button
+                                    onClick={handleCloseChecking}
+                                    className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs transition font-sans"
+                                >
+                                    ปิดหน้าจอ
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Logs list side (Live updating log list) */}
+                        <div className="flex-1 p-6 flex flex-col h-[500px] md:h-auto overflow-hidden">
+                            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-3 font-sans">
+                                <div>
+                                    <h4 className="font-bold text-gray-900 text-sm font-sans">ผู้เช็คชื่อสำเร็จล่าสุด</h4>
+                                    <p className="text-[10px] text-gray-400 font-sans">อัปเดตแบบเรียลไทม์ผ่าน Sockets</p>
+                                </div>
+                                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold font-sans">
+                                    ทั้งหมด {checkingLogs.length} คน
+                                </span>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto space-y-2 pr-1 font-sans">
+                                {checkingLogs.length === 0 ? (
+                                    <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 space-y-1">
+                                        <AlertCircle size={24} />
+                                        <p className="text-xs font-sans">ยังไม่มีผู้เช็คชื่อเข้ามาในขณะนี้</p>
+                                        <p className="text-[10px] text-gray-300 font-sans">รอนิสิตแสกน QR Code หรือส่งรหัส...</p>
+                                    </div>
+                                ) : (
+                                    checkingLogs.map((log) => {
+                                        const student = log.student;
+                                        const studentName = student ? `${student.firstName} ${student.lastName}` : 'ไม่ระบุชื่อ';
+                                        const timeStr = log.checkedInAt ? new Date(log.checkedInAt).toLocaleTimeString('th-TH') : '';
+                                        const statusLabel = log.status === 'present' ? 'มาเรียน' : log.status === 'late' ? 'สาย' : 'ขาด';
+                                        
+                                        return (
+                                            <div
+                                                key={student?._id || log._id}
+                                                className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-xl"
+                                            >
+                                                <div>
+                                                    <p className="text-sm font-bold text-gray-800 font-sans">{studentName}</p>
+                                                    <p className="text-xs text-gray-400 font-sans">{student?.email || ''}</p>
+                                                </div>
+                                                <div className="text-right font-sans">
+                                                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                        log.status === 'present' ? 'bg-green-50 text-green-700 border border-green-200 font-sans' :
+                                                        log.status === 'late' ? 'bg-amber-50 text-amber-700 border border-amber-250 font-sans' :
+                                                        'bg-red-50 text-red-700 border border-red-200 font-sans'
+                                                    }`}>
+                                                        {statusLabel}
+                                                    </span>
+                                                    <p className="text-[10px] text-gray-400 mt-0.5 font-sans">{timeStr}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

@@ -20,6 +20,7 @@ const ExamSession = lazy(() => import('./pages/teacher/ExamSession'));
 const CheatMonitor = lazy(() => import('./pages/teacher/CheatMonitor'));
 const ExamHistory = lazy(() => import('./pages/teacher/ExamHistory'));
 const ExamAttempts = lazy(() => import('./pages/teacher/ExamAttempts'));
+const AttendanceSummary = lazy(() => import('./pages/teacher/AttendanceSummary'));
 const StudentLayout = lazy(() => import('./components/StudentLayout'));
 const StudentHome = lazy(() => import('./pages/student/StudentHome'));
 const StudentHistory = lazy(() => import('./pages/student/StudentHistory'));
@@ -60,6 +61,7 @@ function App() {
                                         <Route path="exams/:id/monitor" element={<CheatMonitor />} />
                                         <Route path="exams/:id/attempts" element={<ExamAttempts />} />
                                         <Route path="exams/:id/history" element={<ExamHistory />} />
+                                        <Route path="attendance/:sessionId" element={<AttendanceSummary />} />
                                     </Route>
 
                                     <Route path="/student" element={<StudentLayout />}>

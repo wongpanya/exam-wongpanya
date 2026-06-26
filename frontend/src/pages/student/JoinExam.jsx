@@ -83,12 +83,6 @@ const JoinExam = () => {
         }
     }, [navigate]);
 
-    useEffect(() => {
-        if (codeParam && !processingRef.current) {
-            joinCategoryWithCode(codeParam);
-        }
-    }, [codeParam, joinCategoryWithCode]);
-
     const joinWithToken = useCallback(async (tokenData, rawToken) => {
         try {
             setStatus('joining');
@@ -107,17 +101,48 @@ const JoinExam = () => {
                 navigate(`/student/exam/${tokenData.examId}`);
             }, 800);
         } catch (err) {
-            setStatus('error');
-            setMessage(err.response?.data?.message || 'ไม่สามารถเข้าห้องสอบได้');
-            processingRef.current = false;
+            // Fallback: Try attendance check-in
+            try {
+                const user = JSON.parse(localStorage.getItem('user'));
+                const config = {
+                    headers: { Authorization: `Bearer ${user.token}` },
+                };
+                const { data } = await api.post(
+                    '/attendance/join',
+                    { code: rawToken || tokenData },
+                    config
+                );
 
-            setTimeout(() => {
+                setStatus('success');
+                setMessage(data.message || 'เช็คชื่อเข้าเรียนสำเร็จ!');
+                setSuccessSubtext('กำลังนำคุณไปยังหน้าแรก...');
+                setTimeout(() => {
+                    navigate('/student');
+                }, 1500);
+            } catch (attErr) {
+                setStatus('error');
+                setMessage(attErr.response?.data?.message || 'ไม่สามารถเข้าห้องสอบหรือเช็คชื่อได้');
                 processingRef.current = false;
-                setStatus('idle');
-                setMessage('');
-            }, 3000);
+
+                setTimeout(() => {
+                    processingRef.current = false;
+                    setStatus('idle');
+                    setMessage('');
+                }, 3000);
+            }
         }
     }, [navigate]);
+
+    useEffect(() => {
+        if (codeParam && !processingRef.current) {
+            if (codeParam.includes('.')) {
+                const parts = codeParam.split('.');
+                joinWithToken({ examId: parts[0] }, codeParam);
+            } else {
+                joinCategoryWithCode(codeParam);
+            }
+        }
+    }, [codeParam, joinCategoryWithCode, joinWithToken]);
 
     const startScanner = async () => {
         setStatus('scanning');
@@ -269,27 +294,50 @@ const JoinExam = () => {
                         navigate(`/student/exam/${data.examId}`);
                     }, 800);
                 } catch (err) {
-                    // Fallback: try joining category in case it's a numeric class PIN
+                    // Fallback 1: Try checking in for attendance
                     try {
                         const user = JSON.parse(localStorage.getItem('user'));
                         const config = {
                             headers: { Authorization: `Bearer ${user.token}` },
                         };
                         const { data } = await api.post(
-                            '/exams/categories/join',
+                            '/attendance/join',
                             { code: cleaned },
                             config
                         );
 
                         setStatus('success');
-                        setMessage(data.message || 'เข้าร่วมรายวิชาสำเร็จ!');
-                        setSuccessSubtext('กำลังนำคุณไปยังหน้ารายวิชา...');
+                        setMessage(data.message || 'เช็คชื่อเข้าเรียนสำเร็จ!');
+                        setSuccessSubtext('กำลังนำคุณไปยังหน้าแรก...');
                         setTimeout(() => {
                             navigate('/student');
                         }, 1500);
-                    } catch (catErr) {
-                        // Throw original exam session error if both failed
-                        throw err;
+                    } catch (attErr) {
+                        // Fallback 2: try joining category in case it's a numeric class PIN
+                        try {
+                            const user = JSON.parse(localStorage.getItem('user'));
+                            const config = {
+                                headers: { Authorization: `Bearer ${user.token}` },
+                            };
+                            const { data } = await api.post(
+                                '/exams/categories/join',
+                                { code: cleaned },
+                                config
+                            );
+
+                            setStatus('success');
+                            setMessage(data.message || 'เข้าร่วมรายวิชาสำเร็จ!');
+                            setSuccessSubtext('กำลังนำคุณไปยังหน้ารายวิชา...');
+                            setTimeout(() => {
+                                navigate('/student');
+                            }, 1500);
+                        } catch (catErr) {
+                            // If attendance check-in failed with a specific error message, throw that instead of the generic exam session error
+                            if (attErr.response?.data?.message) {
+                                throw attErr;
+                            }
+                            throw err;
+                        }
                     }
                 }
             } else {

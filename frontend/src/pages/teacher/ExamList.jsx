@@ -18,10 +18,12 @@ import {
     Move,
     Users,
     QrCode,
-    GraduationCap
+    GraduationCap,
+    CheckCircle
 } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 import { QRCodeSVG } from 'qrcode.react';
+import AttendanceManager from './AttendanceManager';
 
 const ExamList = () => {
     const navigate = useNavigate();
@@ -545,6 +547,17 @@ const ExamList = () => {
                         <Users size={18} />
                         จัดการนักเรียน ({categoryStudents.length})
                     </button>
+                    <button
+                        onClick={() => setActiveTab('attendance')}
+                        className={`py-2.5 px-5 text-sm font-semibold border-b-2 transition-all flex items-center gap-2
+                            ${activeTab === 'attendance'
+                                ? 'border-indigo-600 text-indigo-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                    >
+                        <CheckCircle size={18} />
+                        เช็คชื่อเข้าเรียน
+                    </button>
                 </div>
             )}
 
@@ -677,6 +690,8 @@ const ExamList = () => {
                         </div>
                     )}
                 </div>
+            ) : categoryId && activeTab === 'attendance' ? (
+                <AttendanceManager categoryId={categoryId} categoryStudents={categoryStudents} />
             ) : (
                 /* 2. Exams Section */
                 <div className="space-y-3">
