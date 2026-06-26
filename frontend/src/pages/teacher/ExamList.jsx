@@ -1,18 +1,45 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../config/api';
-import { Trash2, Eye, PlusCircle, Clock, FileText, Pencil } from 'lucide-react';
+import { 
+    Trash2, 
+    Eye, 
+    PlusCircle, 
+    Clock, 
+    FileText, 
+    Pencil, 
+    Folder, 
+    FolderOpen, 
+    FolderPlus, 
+    ArrowLeft, 
+    ChevronRight, 
+    Plus, 
+    X, 
+    Move 
+} from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 
 const ExamList = () => {
     const navigate = useNavigate();
+    const { categoryId } = useParams();
     const { showConfirm } = useDialog();
     const [exams, setExams] = useState([]);
-    const [categories, setCategories] = useState(['ทั้งหมด']);
-    const [selectedCategory, setSelectedCategory] = useState('ทั้งหมด');
+    
+    // States for custom categories & drag-over tracking
+    const [createdCategories, setCreatedCategories] = useState([]);
+    const [draggedOverFolder, setDraggedOverFolder] = useState(null);
+    
+    // Inline category creation
+    const [isCreatingCat, setIsCreatingCat] = useState(false);
+    const [newCatName, setNewCatName] = useState('');
+    
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+
+    // Find the current category details from categories list
+    const currentCategory = createdCategories.find(c => c._id === categoryId);
+    const currentFolder = currentCategory ? currentCategory.name : null;
 
     const fetchExamsAndCategories = async () => {
         try {
@@ -29,8 +56,8 @@ const ExamList = () => {
             ]);
 
             setExams(examsRes.data);
-            const cats = Array.from(new Set(['ทั้งหมด', 'ทั่วไป', ...categoriesRes.data]));
-            setCategories(cats);
+            const dbCategories = categoriesRes.data;
+            setCreatedCategories(dbCategories);
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to fetch exams');
         } finally {
@@ -43,7 +70,12 @@ const ExamList = () => {
     }, []);
 
     const handleDelete = async (id) => {
-        const ok = await showConfirm({ title: 'ลบข้อสอบ', message: 'คุณต้องการลบข้อสอบนี้ใช่หรือไม่?', confirmText: 'ลบ', variant: 'danger' });
+        const ok = await showConfirm({ 
+            title: 'ลบข้อสอบ', 
+            message: 'คุณต้องการลบข้อสอบนี้ใช่หรือไม่?', 
+            confirmText: 'ลบ', 
+            variant: 'danger' 
+        });
         if (!ok) return;
 
         try {
@@ -61,6 +93,127 @@ const ExamList = () => {
         }
     };
 
+    // Category Update API Call
+    const updateExamCategory = async (examId, newCategory) => {
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+
+            const { data } = await api.put(`/exams/${examId}`, { category: newCategory }, config);
+            
+            // Update local state with populated exam from response
+            setExams(prev => prev.map(exam => 
+                exam._id === examId ? data : exam
+            ));
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to update category');
+        }
+    };
+
+    // HTML5 Drag and Drop Handlers
+    const handleDragStart = (e, examId) => {
+        e.dataTransfer.setData('text/plain', examId);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragOver = (e, catId) => {
+        e.preventDefault();
+        setDraggedOverFolder(catId);
+    };
+
+    const handleDragLeave = () => {
+        setDraggedOverFolder(null);
+    };
+
+    const handleDrop = async (e, catId) => {
+        e.preventDefault();
+        setDraggedOverFolder(null);
+        const examId = e.dataTransfer.getData('text/plain');
+        if (!examId) return;
+        await updateExamCategory(examId, catId);
+    };
+
+    // Create New Category Folder in Database
+    const handleCreateCategory = async (e) => {
+        e.preventDefault();
+        const trimmed = newCatName.trim();
+        if (!trimmed) {
+            setIsCreatingCat(false);
+            return;
+        }
+        if (trimmed.toLowerCase() === 'ทั่วไป' || createdCategories.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
+            setError('ชื่อหมวดหมู่นี้มีอยู่แล้ว');
+            setNewCatName('');
+            setIsCreatingCat(false);
+            return;
+        }
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+
+            const { data } = await api.post('/exams/categories', { name: trimmed }, config);
+            setCreatedCategories(prev => [...prev, data]);
+            setNewCatName('');
+            setIsCreatingCat(false);
+            setError('');
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to create category');
+        }
+    };
+
+    // Delete category folder from database
+    const handleDeleteCategory = async (e, catId) => {
+        e.stopPropagation();
+        const ok = await showConfirm({
+            title: 'ลบหมวดหมู่',
+            message: 'คุณต้องการลบหมวดหมู่นี้ใช่หรือไม่? (ข้อสอบในหมวดหมู่นี้จะถูกย้ายออกเป็นข้อสอบทั่วไป)',
+            confirmText: 'ลบ',
+            variant: 'danger'
+        });
+        if (!ok) return;
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+            
+            await api.delete(`/exams/categories/${catId}`, config);
+            
+            // Remove locally
+            setCreatedCategories(prev => prev.filter(c => c._id !== catId));
+            
+            // Reset any exams under this category to null
+            setExams(prev => prev.map(exam => 
+                exam.category && exam.category._id === catId 
+                    ? { ...exam, category: null } 
+                    : exam
+            ));
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to delete category');
+        }
+    };
+
+    // Move back to general
+    const handleMoveToGeneral = async (examId) => {
+        await updateExamCategory(examId, 'ทั่วไป');
+        // If currently viewing the folder, navigate back to main exams list
+        if (categoryId) {
+            navigate('/teacher/exams');
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -69,29 +222,82 @@ const ExamList = () => {
         );
     }
 
+    // Filter exams based on category ID & search query
+    const getFilteredExams = () => {
+        return exams.filter((exam) => {
+            const matchesSearch = 
+                exam.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                exam.examId.toLowerCase().includes(searchQuery.toLowerCase());
+            
+            if (!categoryId) {
+                // Main view shows only general exams (no category or category name is 'ทั่วไป')
+                const isGeneral = !exam.category || exam.category.name === 'ทั่วไป';
+                return matchesSearch && isGeneral;
+            } else {
+                // Category detail view shows exams matching categoryId
+                const matchesCategory = exam.category && exam.category._id === categoryId;
+                return matchesSearch && matchesCategory;
+            }
+        });
+    };
+
+    const filteredExams = getFilteredExams();
+
     return (
         <div className="space-y-6">
+            {/* Header section */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">รายการข้อสอบ</h1>
-                    <p className="text-gray-500 mt-1">ข้อสอบทั้งหมดที่คุณสร้าง ({exams.length} ชุด)</p>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+                        {categoryId ? (
+                            <>
+                                <button 
+                                    onClick={() => navigate('/teacher/exams')}
+                                    className="p-1 hover:bg-gray-150 rounded-lg text-gray-500 hover:text-indigo-600 transition"
+                                    title="ย้อนกลับ"
+                                >
+                                    <ArrowLeft size={24} />
+                                </button>
+                                <span 
+                                    className="cursor-pointer hover:text-indigo-600 transition"
+                                    onClick={() => navigate('/teacher/exams')}
+                                >
+                                    รายการข้อสอบ
+                                </span>
+                                <ChevronRight size={20} className="text-gray-400" />
+                                <span className="text-indigo-600">{currentFolder || 'กำลังโหลด...'}</span>
+                            </>
+                        ) : (
+                            'รายการข้อสอบ'
+                        )}
+                    </h1>
+                    <p className="text-gray-500 mt-1">
+                        {categoryId 
+                            ? `ข้อสอบในหมวดหมู่ ${currentFolder || ''} (${filteredExams.length} ชุด)`
+                            : `จัดการห้องข้อสอบและข้อสอบทั่วไป (${exams.length} ชุด)`
+                        }
+                    </p>
                 </div>
                 <button
                     onClick={() => navigate('/teacher/exams/create')}
-                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium flex items-center gap-2 transition text-sm"
+                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium flex items-center gap-2 transition text-sm shadow-sm"
                 >
                     <PlusCircle size={18} /> สร้างข้อสอบใหม่
                 </button>
             </div>
 
             {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex justify-between items-center">
                     <p className="text-red-600 text-sm">{error}</p>
+                    <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
+                        <X size={16} />
+                    </button>
                 </div>
             )}
 
+            {/* Search filter bar */}
             {exams.length > 0 && (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col md:flex-row items-center gap-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex items-center gap-4">
                     <div className="relative flex-1 w-full">
                         <input
                             type="text"
@@ -106,68 +312,163 @@ const ExamList = () => {
                             </svg>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                        <span className="text-sm font-medium text-gray-500 flex-shrink-0">หมวดหมู่:</span>
-                        <select
-                            value={selectedCategory}
-                            onChange={(e) => setSelectedCategory(e.target.value)}
-                            className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm bg-white"
+                </div>
+            )}
+
+            {/* 1. Folders Section (Only shown on main view) */}
+            {!categoryId && (
+                <div className="space-y-3">
+                    <h2 className="text-lg font-bold text-gray-800">หมวดหมู่ข้อสอบ (ห้อง, รายวิชา)</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                        {/* Categories List */}
+                        {createdCategories.map((cat) => {
+                            const count = exams.filter(e => e.category && e.category._id === cat._id).length;
+                            const isOver = draggedOverFolder === cat._id;
+                            return (
+                                <div
+                                    key={cat._id}
+                                    onClick={() => navigate(`/teacher/exams/category/${cat._id}`)}
+                                    onDragOver={(e) => handleDragOver(e, cat._id)}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, cat._id)}
+                                    className={`cursor-pointer rounded-xl border p-4 transition-all duration-200 flex flex-col justify-between group h-28 relative select-none
+                                        ${isOver 
+                                            ? 'border-indigo-500 bg-indigo-50/70 scale-105 shadow-md ring-2 ring-indigo-400/50' 
+                                            : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm hover:-translate-y-0.5'
+                                        }`}
+                                >
+                                    {/* Delete icon on hover */}
+                                    <button
+                                        onClick={(e) => handleDeleteCategory(e, cat._id)}
+                                        className="absolute top-2 right-2 p-1 text-gray-300 hover:text-red-500 hover:bg-gray-100 rounded-md transition opacity-0 group-hover:opacity-100"
+                                        title="ลบหมวดหมู่"
+                                    >
+                                        <X size={14} />
+                                    </button>
+
+                                    <div className="flex items-start">
+                                        <div className={`p-2 rounded-lg transition-colors
+                                            ${isOver 
+                                                ? 'bg-indigo-600 text-white' 
+                                                : 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100'
+                                            }`}
+                                        >
+                                            {isOver ? <FolderOpen size={20} /> : <Folder size={20} />}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="space-y-0.5 min-w-0">
+                                        <h3 className="font-semibold text-gray-800 group-hover:text-indigo-600 text-sm truncate pr-4">
+                                            {cat.name}
+                                        </h3>
+                                        <p className="text-[11px] text-gray-400">
+                                            {count} ข้อสอบ
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* Add category card */}
+                        <div
+                            className={`rounded-xl border border-dashed border-gray-300 p-4 transition-all duration-200 flex flex-col justify-center items-center h-28 text-center
+                                ${isCreatingCat ? 'bg-white border-indigo-400' : 'bg-gray-50/50 hover:bg-white hover:border-indigo-300 hover:shadow-sm cursor-pointer'}`}
+                            onClick={() => !isCreatingCat && setIsCreatingCat(true)}
                         >
-                            {categories.map((cat) => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                        </select>
+                            {isCreatingCat ? (
+                                <form onSubmit={handleCreateCategory} className="w-full space-y-2">
+                                    <input
+                                        type="text"
+                                        autoFocus
+                                        placeholder="ชื่อหมวดหมู่..."
+                                        value={newCatName}
+                                        onChange={(e) => setNewCatName(e.target.value)}
+                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none text-center"
+                                        onBlur={() => {
+                                            if (!newCatName.trim()) setIsCreatingCat(false);
+                                        }}
+                                    />
+                                    <div className="flex justify-center gap-1">
+                                        <button
+                                            type="submit"
+                                            className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[10px] font-semibold hover:bg-indigo-700"
+                                        >
+                                            เพิ่ม
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setIsCreatingCat(false);
+                                                setNewCatName('');
+                                            }}
+                                            className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] font-semibold hover:bg-gray-300"
+                                        >
+                                            ยกเลิก
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <>
+                                    <FolderPlus size={20} className="text-gray-400 mb-1" />
+                                    <span className="text-xs font-medium text-gray-500">สร้างหมวดหมู่ใหม่</span>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
 
-            {exams.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-                    <FileText className="mx-auto text-gray-300 mb-4" size={48} />
-                    <h3 className="text-lg font-semibold text-gray-700">ยังไม่มีข้อสอบ</h3>
-                    <p className="text-gray-500 mt-1">คลิก &quot;สร้างข้อสอบใหม่&quot; เพื่อเริ่มต้น</p>
-                </div>
-            ) : (() => {
-                const filteredExams = exams.filter((exam) => {
-                    const matchesSearch = 
-                        exam.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                        exam.examId.toLowerCase().includes(searchQuery.toLowerCase());
-                    
-                    const examCategory = exam.category || 'ทั่วไป';
-                    const matchesCategory = 
-                        selectedCategory === 'ทั้งหมด' || 
-                        examCategory === selectedCategory;
+            {/* 2. Exams Section */}
+            <div className="space-y-3">
+                <h2 className="text-lg font-bold text-gray-800">
+                    {categoryId 
+                        ? `รายการข้อสอบใน ${currentFolder || ''}` 
+                        : 'ข้อสอบทั่วไป (ยังไม่มีหมวดหมู่ / ลากไปวางในหมวดหมู่ด้านบนได้)'
+                    }
+                </h2>
 
-                    return matchesSearch && matchesCategory;
-                });
-
-                if (filteredExams.length === 0) {
-                    return (
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-                            <FileText className="mx-auto text-gray-300 mb-4" size={48} />
-                            <h3 className="text-lg font-semibold text-gray-700">ไม่พบข้อสอบ</h3>
-                            <p className="text-gray-500 mt-1">ไม่พบข้อสอบที่ตรงตามคำค้นหาหรือตัวกรองหมวดหมู่</p>
-                        </div>
-                    );
-                }
-
-                return (
+                {filteredExams.length === 0 ? (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                        <FileText className="mx-auto text-gray-300 mb-4" size={48} />
+                        <h3 className="text-base font-semibold text-gray-600">
+                            {categoryId ? 'หมวดหมู่นี้ยังไม่มีข้อสอบ' : 'ยังไม่มีข้อสอบทั่วไป'}
+                        </h3>
+                        <p className="text-sm text-gray-400 mt-1">
+                            {categoryId 
+                                ? 'ลากข้อสอบทั่วไปใส่โฟลเดอร์นี้เพื่อบันทึกข้อสอบ' 
+                                : 'ข้อสอบทั้งหมดมีหมวดหมู่แล้ว หรือยังไม่มีการสร้างข้อสอบ'
+                            }
+                        </p>
+                    </div>
+                ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         {filteredExams.map((exam) => (
                             <div
                                 key={exam._id}
-                                className="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow overflow-hidden"
+                                draggable={!categoryId}
+                                onDragStart={(e) => handleDragStart(e, exam._id)}
+                                className={`bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all overflow-hidden relative select-none
+                                    ${!categoryId 
+                                        ? 'cursor-grab active:cursor-grabbing border-l-4 border-l-indigo-500 hover:border-l-indigo-600' 
+                                        : ''
+                                    }`}
                             >
                                 <div className="p-5 space-y-3">
                                     <div className="flex items-start justify-between">
                                         <div className="flex-1 min-w-0">
                                             <div className="flex flex-wrap items-center gap-1.5">
+                                                {!categoryId && (
+                                                    <span className="text-gray-400 mr-0.5 flex items-center" title="ลากเพื่อย้ายหมวดหมู่">
+                                                        <Move size={12} />
+                                                    </span>
+                                                )}
                                                 <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
                                                     {exam.examId}
                                                 </span>
                                                 <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100 flex items-center gap-1">
                                                     <span className="w-1 h-1 rounded-full bg-purple-400"></span>
-                                                    {exam.category || 'ทั่วไป'}
+                                                    {exam.category ? exam.category.name : 'ทั่วไป'}
                                                 </span>
                                             </div>
                                             <h3 className="text-lg font-semibold text-gray-900 mt-1 truncate">
@@ -196,31 +497,48 @@ const ExamList = () => {
                                     </div>
                                 </div>
 
-                                <div className="border-t border-gray-100 px-5 py-3 bg-gray-50 flex justify-end gap-2">
-                                    <button
-                                        onClick={() => navigate(`/teacher/exams/${exam._id}`)}
-                                        className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition flex items-center gap-1"
-                                    >
-                                        <Eye size={14} /> ดูรายละเอียด
-                                    </button>
-                                    <button
-                                        onClick={() => navigate(`/teacher/exams/${exam._id}/edit`)}
-                                        className="px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 rounded-lg transition flex items-center gap-1"
-                                    >
-                                        <Pencil size={14} /> แก้ไข
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(exam._id)}
-                                        className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition flex items-center gap-1"
-                                    >
-                                        <Trash2 size={14} /> ลบ
-                                    </button>
+                                <div className="border-t border-gray-100 px-5 py-3 bg-gray-50 flex justify-between items-center gap-2">
+                                    {/* Show Move back to General only if inside a custom category folder */}
+                                    {categoryId ? (
+                                        <button
+                                            onClick={() => handleMoveToGeneral(exam._id)}
+                                            className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200 bg-gray-100 rounded-lg transition flex items-center gap-1.5 font-medium"
+                                            title="ย้ายข้อสอบออกไปยังข้อสอบทั่วไป"
+                                        >
+                                            <FolderOpen size={14} /> ย้ายออกไปทั่วไป
+                                        </button>
+                                    ) : (
+                                        <span className="text-[11px] text-gray-400 hidden sm:inline flex-shrink-0">
+                                            ลากเพื่อย้าย
+                                        </span>
+                                    )}
+
+                                    <div className="flex gap-1.5 ml-auto">
+                                        <button
+                                            onClick={() => navigate(`/teacher/exams/${exam._id}`)}
+                                            className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition flex items-center gap-1"
+                                        >
+                                            <Eye size={14} /> ดูรายละเอียด
+                                        </button>
+                                        <button
+                                            onClick={() => navigate(`/teacher/exams/${exam._id}/edit`)}
+                                            className="px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 rounded-lg transition flex items-center gap-1"
+                                        >
+                                            <Pencil size={14} /> แก้ไข
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(exam._id)}
+                                            className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition flex items-center gap-1"
+                                        >
+                                            <Trash2 size={14} /> ลบ
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         ))}
                     </div>
-                );
-            })()}
+                )}
+            </div>
         </div>
     );
 };

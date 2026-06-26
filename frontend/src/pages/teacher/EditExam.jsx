@@ -74,7 +74,7 @@ const EditExam = () => {
                 const { data } = await api.get(`/exams/${id}`, config);
                 setTitle(data.title);
                 setDurationMin(data.durationMin);
-                setCategory(data.category || 'ทั่วไป');
+                setCategory(data.category ? (typeof data.category === 'object' ? data.category.name : data.category) : 'ทั่วไป');
                 setQuestions(data.questions);
             } catch (err) {
                 setError(err.response?.data?.message || 'Failed to fetch exam');
@@ -92,7 +92,8 @@ const EditExam = () => {
                     },
                 };
                 const { data } = await api.get('/exams/categories', config);
-                const uniqueCats = Array.from(new Set([...data, 'ทั่วไป']));
+                const names = Array.isArray(data) ? data.map(c => typeof c === 'object' && c !== null ? c.name : c) : [];
+                const uniqueCats = Array.from(new Set([...names, 'ทั่วไป']));
                 setExistingCategories(uniqueCats);
             } catch (err) {
                 console.error('Failed to fetch categories:', err);

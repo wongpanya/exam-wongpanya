@@ -57,8 +57,9 @@ const examSchema = new mongoose.Schema({
         required: true,
     },
     category: {
-        type: String,
-        default: 'ทั่วไป',
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Category',
+        default: null, // null means general exam (ข้อสอบทั่วไป)
     },
 }, {
     timestamps: true,

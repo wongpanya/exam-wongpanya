@@ -52,6 +52,7 @@ function App() {
                                         <Route index element={<TeacherHome />} />
                                         <Route path="students" element={<StudentList />} />
                                         <Route path="exams" element={<ExamList />} />
+                                        <Route path="exams/category/:categoryId" element={<ExamList />} />
                                         <Route path="exams/create" element={<CreateExam />} />
                                         <Route path="exams/:id" element={<ExamDetail />} />
                                         <Route path="exams/:id/edit" element={<EditExam />} />
