@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
 import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload } from 'lucide-react';
