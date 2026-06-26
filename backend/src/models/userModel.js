@@ -31,6 +31,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['student', 'teacher', 'admin', 'dev'],
         default: 'student'
+    },
+    seenTutorials: {
+        type: [String],
+        default: undefined
     }
 }, {
     timestamps: true

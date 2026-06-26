@@ -5,7 +5,7 @@ const Exam = require('../models/examModel');
 // @route   POST /api/exams
 // @access  Private/Teacher
 const createExam = asyncHandler(async (req, res) => {
-    const { title, durationMin, questions } = req.body;
+    const { title, durationMin, questions, category } = req.body;
 
     if (!title || !durationMin || !questions || questions.length === 0) {
         res.status(400);
@@ -29,6 +29,7 @@ const createExam = asyncHandler(async (req, res) => {
         durationMin,
         questions: processedQuestions,
         createdBy: req.user._id,
+        category: category || 'ทั่วไป',
     });
 
     res.status(201).json(exam);
@@ -82,7 +83,7 @@ const updateExam = asyncHandler(async (req, res) => {
         throw new Error('Not authorized to update this exam');
     }
 
-    const { title, durationMin, questions } = req.body;
+    const { title, durationMin, questions, category } = req.body;
 
     // Auto-generate questionIds if not provided
     const processedQuestions = questions
@@ -95,6 +96,9 @@ const updateExam = asyncHandler(async (req, res) => {
     exam.title = title || exam.title;
     exam.durationMin = durationMin || exam.durationMin;
     exam.questions = processedQuestions;
+    if (category !== undefined) {
+        exam.category = category;
+    }
 
     const updatedExam = await exam.save();
     res.json(updatedExam);
@@ -120,10 +124,23 @@ const deleteExam = asyncHandler(async (req, res) => {
     res.json({ message: 'Exam deleted' });
 });
 
+// @desc    Get all distinct categories for teacher
+// @route   GET /api/exams/categories
+// @access  Private/Teacher
+const getDistinctCategories = asyncHandler(async (req, res) => {
+    let query = {};
+    if (req.user.email !== '66025694@up.ac.th') {
+        query = { createdBy: req.user._id };
+    }
+    const categories = await Exam.distinct('category', query);
+    res.json(categories);
+});
+
 module.exports = {
     createExam,
     getExams,
     getExamById,
     updateExam,
     deleteExam,
+    getDistinctCategories,
 };

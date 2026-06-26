@@ -14,6 +14,8 @@ const EditExam = () => {
 
     const [title, setTitle] = useState('');
     const [durationMin, setDurationMin] = useState(30);
+    const [category, setCategory] = useState('ทั่วไป');
+    const [existingCategories, setExistingCategories] = useState([]);
     const [questions, setQuestions] = useState([]);
 
     // Export current questions as CSV
@@ -72,6 +74,7 @@ const EditExam = () => {
                 const { data } = await api.get(`/exams/${id}`, config);
                 setTitle(data.title);
                 setDurationMin(data.durationMin);
+                setCategory(data.category || 'ทั่วไป');
                 setQuestions(data.questions);
             } catch (err) {
                 setError(err.response?.data?.message || 'Failed to fetch exam');
@@ -80,7 +83,25 @@ const EditExam = () => {
             }
         };
 
+        const fetchCategories = async () => {
+            try {
+                const user = JSON.parse(localStorage.getItem('user'));
+                const config = {
+                    headers: {
+                        Authorization: `Bearer ${user.token}`,
+                    },
+                };
+                const { data } = await api.get('/exams/categories', config);
+                const uniqueCats = Array.from(new Set([...data, 'ทั่วไป']));
+                setExistingCategories(uniqueCats);
+            } catch (err) {
+                console.error('Failed to fetch categories:', err);
+                setExistingCategories(['ทั่วไป']);
+            }
+        };
+
         fetchExam();
+        fetchCategories();
     }, [id]);
 
     const addQuestion = () => {
@@ -199,7 +220,7 @@ const EditExam = () => {
                 },
             };
 
-            await api.put(`/exams/${id}`, { title, durationMin, questions }, config);
+            await api.put(`/exams/${id}`, { title, durationMin, questions, category }, config);
             setSuccess('บันทึกข้อสอบสำเร็จ!');
             setTimeout(() => navigate('/teacher/exams'), 1500);
         } catch (err) {
@@ -251,7 +272,7 @@ const EditExam = () => {
                 {/* Exam Info */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 space-y-4">
                     <h2 className="text-lg font-semibold text-gray-900">ข้อมูลข้อสอบ</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อข้อสอบ</label>
                             <input
@@ -259,7 +280,7 @@ const EditExam = () => {
                                 value={title}
                                 onChange={(e) => setTitle(e.target.value)}
                                 placeholder="เช่น Midterm Quiz - Network Basics"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
                             />
                         </div>
                         <div>
@@ -269,8 +290,36 @@ const EditExam = () => {
                                 min="1"
                                 value={durationMin}
                                 onChange={(e) => setDurationMin(Number(e.target.value))}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
                             />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">หมวดหมู่ข้อสอบ</label>
+                            <input
+                                type="text"
+                                value={category}
+                                onChange={(e) => setCategory(e.target.value)}
+                                placeholder="เช่น 225xxx"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
+                            />
+                            {/* Suggested Categories */}
+                            <div className="flex flex-wrap gap-1.5 items-center mt-1.5">
+                                <span className="text-[10px] text-gray-400 font-medium">หมวดหมู่แนะนำ:</span>
+                                {existingCategories.slice(0, 5).map((cat) => (
+                                    <button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => setCategory(cat)}
+                                        className={`px-2 py-0.5 text-[10px] rounded-full border transition ${
+                                            category === cat
+                                                ? 'bg-indigo-50 text-indigo-600 border-indigo-200 font-semibold'
+                                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        {cat}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>

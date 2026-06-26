@@ -56,6 +56,10 @@ const examSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+    category: {
+        type: String,
+        default: 'ทั่วไป',
+    },
 }, {
     timestamps: true,
 });

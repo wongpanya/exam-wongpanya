@@ -42,6 +42,7 @@ const registerUser = asyncHandler(async (req, res) => {
             phoneNumber: user.phoneNumber,
             email: user.email,
             role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
+            seenTutorials: user.seenTutorials || [],
             token: generateToken(user._id),
         });
     } else {
@@ -67,6 +68,7 @@ const authUser = asyncHandler(async (req, res) => {
             phoneNumber: user.phoneNumber,
             email: user.email,
             role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
+            seenTutorials: user.seenTutorials || [],
             token: generateToken(user._id),
         });
     } else {
@@ -124,6 +126,7 @@ const updateUser = asyncHandler(async (req, res) => {
         phoneNumber: updatedUser.phoneNumber,
         email: updatedUser.email,
         role: updatedUser.email === '66025694@up.ac.th' ? 'teacher' : updatedUser.role,
+        seenTutorials: updatedUser.seenTutorials || [],
     });
 });
 
@@ -173,6 +176,39 @@ const deleteUser = asyncHandler(async (req, res) => {
     res.json({ message: 'ลบผู้ใช้เรียบร้อยแล้ว' });
 });
 
+// @desc    Mark a tutorial as seen
+// @route   PUT /api/users/me/seen-tutorial
+// @access  Private
+const markTutorialAsSeen = asyncHandler(async (req, res) => {
+    const { tutorialId } = req.body;
+
+    if (!tutorialId) {
+        res.status(400);
+        throw new Error('Please provide tutorialId');
+    }
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+        res.status(404);
+        throw new Error('User not found');
+    }
+
+    if (!user.seenTutorials) {
+        user.seenTutorials = [];
+    }
+
+    if (!user.seenTutorials.includes(tutorialId)) {
+        user.seenTutorials.push(tutorialId);
+        await user.save();
+    }
+
+    res.json({
+        message: `Tutorial ${tutorialId} marked as seen`,
+        seenTutorials: user.seenTutorials
+    });
+});
+
 module.exports = {
     registerUser,
     authUser,
@@ -181,4 +217,5 @@ module.exports = {
     updateUser,
     resetPassword,
     deleteUser,
+    markTutorialAsSeen,
 };
