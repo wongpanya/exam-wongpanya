@@ -35,6 +35,10 @@ const userSchema = new mongoose.Schema({
     seenTutorials: {
         type: [String],
         default: undefined
+    },
+    readAnnouncements: {
+        type: [String],
+        default: []
     }
 }, {
     timestamps: true

@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
 const ExamAttempt = require('../models/examAttemptModel');
@@ -209,6 +211,59 @@ const markTutorialAsSeen = asyncHandler(async (req, res) => {
     });
 });
 
+const getAnnouncements = asyncHandler(async (req, res) => {
+    const filePath = path.join(__dirname, '../data/announcements.json');
+    if (!fs.existsSync(filePath)) {
+        return res.json([]);
+    }
+    const data = fs.readFileSync(filePath, 'utf8');
+    const announcements = JSON.parse(data);
+
+    // Fetch user to check read status
+    const user = await User.findById(req.user._id);
+    const readIds = user?.readAnnouncements || [];
+
+    const announcementsWithReadStatus = announcements.map(ann => ({
+        ...ann,
+        read: readIds.includes(ann.id)
+    }));
+
+    res.json(announcementsWithReadStatus);
+});
+
+// @desc    Mark an announcement as read
+// @route   PUT /api/users/me/read-announcement
+// @access  Private
+const markAnnouncementAsRead = asyncHandler(async (req, res) => {
+    const { announcementId } = req.body;
+
+    if (!announcementId) {
+        res.status(400);
+        throw new Error('Please provide announcementId');
+    }
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+        res.status(404);
+        throw new Error('User not found');
+    }
+
+    if (!user.readAnnouncements) {
+        user.readAnnouncements = [];
+    }
+
+    if (!user.readAnnouncements.includes(announcementId)) {
+        user.readAnnouncements.push(announcementId);
+        await user.save();
+    }
+
+    res.json({
+        message: `Announcement ${announcementId} marked as read`,
+        readAnnouncements: user.readAnnouncements
+    });
+});
+
 module.exports = {
     registerUser,
     authUser,
@@ -218,4 +273,6 @@ module.exports = {
     resetPassword,
     deleteUser,
     markTutorialAsSeen,
+    getAnnouncements,
+    markAnnouncementAsRead,
 };

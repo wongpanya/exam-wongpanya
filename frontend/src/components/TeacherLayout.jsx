@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle } from 'lucide-react';
+import api from '../config/api';
 
 const TeacherLayout = () => {
     const navigate = useNavigate();
@@ -8,6 +9,50 @@ const TeacherLayout = () => {
     const [user, setUser] = useState(null);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    const [announcement, setAnnouncement] = useState(null);
+
+    // Fetch announcements when loading layout
+    useEffect(() => {
+        const fetchAnnouncements = async () => {
+            const storedUser = localStorage.getItem('user');
+            if (!storedUser) return;
+            const parsedUser = JSON.parse(storedUser);
+            if (parsedUser.role !== 'teacher') return;
+
+            try {
+                const config = {
+                    headers: { Authorization: `Bearer ${parsedUser.token}` }
+                };
+                const { data } = await api.get('/users/announcements', config);
+                const unread = data.find(ann => !ann.read);
+                if (unread) {
+                    setAnnouncement(unread);
+                }
+            } catch (err) {
+                console.error('Failed to fetch announcements:', err);
+            }
+        };
+
+        fetchAnnouncements();
+    }, [location.pathname]);
+
+    const handleCloseAnnouncement = async () => {
+        if (!announcement) return;
+        try {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
+                const parsedUser = JSON.parse(storedUser);
+                const config = {
+                    headers: { Authorization: `Bearer ${parsedUser.token}` }
+                };
+                await api.put('/users/me/read-announcement', { announcementId: announcement.id }, config);
+            }
+            setAnnouncement(null);
+        } catch (err) {
+            console.error('Failed to mark announcement as read:', err);
+            setAnnouncement(null);
+        }
+    };
 
     useEffect(() => {
         const handleResize = () => {
@@ -158,8 +203,98 @@ const TeacherLayout = () => {
                     <Outlet />
                 </div>
             </main>
+
+            {/* Announcement Modal */}
+            {announcement && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-scale-up">
+                        {/* Header */}
+                        <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50/30 to-purple-50/30 flex items-center justify-between flex-shrink-0">
+                            <div>
+                                <span className="text-[10px] font-bold tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-150 px-2.5 py-0.5 rounded-full uppercase font-sans">
+                                    ประกาศอัปเดตระบบ
+                                </span>
+                                <h3 className="text-base font-extrabold text-gray-900 mt-1 font-sans">
+                                    {announcement.title}
+                                </h3>
+                            </div>
+                            <span className="text-xs text-gray-400 font-medium font-sans">
+                                {announcement.date}
+                            </span>
+                        </div>
+
+                        {/* Body (Scrollable) */}
+                        <div className="px-8 py-6 overflow-y-auto space-y-3 max-h-[60vh] font-sans">
+                            {renderMarkdown(announcement.content)}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/80 flex justify-end items-center flex-shrink-0">
+                            <button
+                                onClick={handleCloseAnnouncement}
+                                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl font-bold text-sm shadow-md shadow-indigo-100 transition-all font-sans cursor-pointer animate-pulse"
+                            >
+                                รับทราบการอัปเดต
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
+};
+
+// Simple Markdown to HTML renderer for announcements
+const renderMarkdown = (text) => {
+    if (!text) return '';
+    
+    // Escape standard characters for safety
+    let processed = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    // Replace headers
+    processed = processed.replace(/^## (.*$)/gim, '<h4 class="text-sm font-extrabold text-gray-800 mt-4 mb-1.5 border-b border-gray-100 pb-0.5 font-sans">$1</h4>');
+    
+    // Replace bullet lists
+    processed = processed.replace(/^\* (.*$)/gim, '<li class="ml-4 list-disc text-xs text-gray-600 my-1 leading-relaxed font-sans">$1</li>');
+    
+    // Replace bold text
+    processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-indigo-700">$1</strong>');
+
+    // Parse paragraph wraps
+    const lines = processed.split('\n');
+    let inList = false;
+    const listFormatted = [];
+
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('<li')) {
+            if (!inList) {
+                listFormatted.push('<ul class="space-y-0.5 my-1.5">');
+                inList = true;
+            }
+            listFormatted.push(line);
+        } else {
+            if (inList) {
+                listFormatted.push('</ul>');
+                inList = false;
+            }
+            if (trimmed.startsWith('<h4') || trimmed === '') {
+                listFormatted.push(line);
+            } else {
+                listFormatted.push(`<p class="text-xs text-gray-600 leading-relaxed mb-2 font-sans">${line}</p>`);
+            }
+        }
+    });
+
+    if (inList) {
+        listFormatted.push('</ul>');
+    }
+
+    const html = listFormatted.join('\n');
+    return <div dangerouslySetInnerHTML={{ __html: html }} />;
 };
 
 export default TeacherLayout;
