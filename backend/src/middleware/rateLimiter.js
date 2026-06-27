@@ -1,11 +1,11 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
 // Helper to extract JWT token for authenticated routes to avoid NAT IP blocking
 const getAuthKey = (req) => {
     if (req.headers && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
         return req.headers.authorization;
     }
-    return req.ip;
+    return ipKeyGenerator(req.ip);
 };
 
 // Auth (login/register) — strict: prevent brute-force
@@ -18,9 +18,9 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req) => {
         if (req.body && req.body.email) {
-            return `${req.ip}_${req.body.email.toLowerCase().trim()}`;
+            return `${ipKeyGenerator(req.ip)}_${req.body.email.toLowerCase().trim()}`;
         }
-        return req.ip;
+        return ipKeyGenerator(req.ip);
     }
 });
 
