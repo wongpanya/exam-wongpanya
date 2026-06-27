@@ -422,7 +422,7 @@ const ExamList = () => {
             {!categoryId && (
                 <div className="space-y-3">
                     <h2 className="text-lg font-bold text-gray-800">หมวดหมู่ข้อสอบ (ห้อง, รายวิชา)</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {/* Categories List */}
                         {createdCategories.map((cat) => {
                             const count = exams.filter(e => e.category && e.category._id === cat._id).length;
@@ -434,7 +434,7 @@ const ExamList = () => {
                                     onDragOver={(e) => handleDragOver(e, cat._id)}
                                     onDragLeave={handleDragLeave}
                                     onDrop={(e) => handleDrop(e, cat._id)}
-                                    className={`cursor-pointer rounded-xl border p-4 transition-all duration-200 flex flex-col justify-between group h-28 relative select-none
+                                    className={`cursor-pointer rounded-xl border p-5 transition-all duration-200 flex flex-col justify-between group h-36 relative select-none
                                         ${isOver 
                                             ? 'border-indigo-500 bg-indigo-50/70 scale-105 shadow-md ring-2 ring-indigo-400/50' 
                                             : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm hover:-translate-y-0.5'
@@ -474,7 +474,7 @@ const ExamList = () => {
 
                         {/* Add category card */}
                         <div
-                            className={`rounded-xl border border-dashed border-gray-300 p-4 transition-all duration-200 flex flex-col justify-center items-center h-28 text-center
+                            className={`rounded-xl border border-dashed border-gray-300 p-5 transition-all duration-200 flex flex-col justify-center items-center h-36 text-center
                                 ${isCreatingCat ? 'bg-white border-indigo-400' : 'bg-gray-50/50 hover:bg-white hover:border-indigo-300 hover:shadow-sm cursor-pointer'}`}
                             onClick={() => !isCreatingCat && setIsCreatingCat(true)}
                         >
