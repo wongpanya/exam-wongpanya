@@ -52,7 +52,7 @@ app.use(
 
 app.use(express.json({ limit: "2mb" }));
 
-// ✅ Health check for DigitalOcean
+// ✅ Health check for DigitalOcean (excluded from rate limiting)
 app.get("/api/health", (req, res) => {
     res.json({ 
         ok: true, 
@@ -65,6 +65,11 @@ app.get("/api/health", (req, res) => {
 app.get("/", (req, res) => {
     res.send("API is running...");
 });
+
+// ✅ Global Rate Limiter — covers all /api/* endpoints
+// Must be placed BEFORE route mounts and AFTER /api/health
+const { apiLimiter } = require("./middleware/rateLimiter");
+app.use("/api", apiLimiter);
 
 // Routes
 app.use("/api/users", require("./routes/userRoutes"));

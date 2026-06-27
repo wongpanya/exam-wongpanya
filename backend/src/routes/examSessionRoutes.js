@@ -22,26 +22,26 @@ const {
 } = require('../controllers/examSessionController');
 const { protect, teacher } = require('../middleware/authMiddleware');
 const validate = require('../middleware/validate');
-const { cheatLogLimiter } = require('../middleware/rateLimiter');
+const { cheatLogLimiter, mutationLimiter } = require('../middleware/rateLimiter');
 const { startSessionSchema, joinSessionSchema, autoSaveSchema, submitSchema, cheatLogSchema, cheatLogBatchSchema } = require('../schemas/sessionSchemas');
 
 // Teacher-only routes
-router.post('/:examId/start', protect, teacher, validate(startSessionSchema), startExam);
-router.post('/:examId/stop', protect, teacher, stopExam);
+router.post('/:examId/start', protect, teacher, mutationLimiter, validate(startSessionSchema), startExam);
+router.post('/:examId/stop', protect, teacher, mutationLimiter, stopExam);
 router.get('/:examId/qr', protect, teacher, getQRToken);
 router.get('/:examId/attempts', protect, teacher, getSessionAttempts);
 router.get('/:examId/cheat-logs', protect, teacher, getCheatLogs);
 router.get('/:examId/students/:studentId/logs', protect, teacher, getStudentCheatLogs);
-router.post('/:examId/students/:studentId/suspend', protect, teacher, toggleStudentSuspension);
+router.post('/:examId/students/:studentId/suspend', protect, teacher, mutationLimiter, toggleStudentSuspension);
 router.get('/:examId/history', protect, teacher, getExamHistory);
-router.delete('/:sessionId', protect, teacher, deleteSession);
+router.delete('/:sessionId', protect, teacher, mutationLimiter, deleteSession);
 
 // Student routes (authenticated)
 router.post('/join-by-code', protect, joinExamByCode);
 router.post('/:examId/join', protect, validate(joinSessionSchema), joinExam);
 router.get('/:examId/attempt', protect, getAttempt);
 router.post('/:examId/auto-save', protect, validate(autoSaveSchema), autoSave);
-router.post('/:examId/submit', protect, validate(submitSchema), submitExam);
+router.post('/:examId/submit', protect, mutationLimiter, validate(submitSchema), submitExam);
 router.post('/:examId/cheat-log', protect, cheatLogLimiter, validate(cheatLogSchema), logCheatEvent);
 router.post('/:examId/cheat-log-batch', protect, cheatLogLimiter, validate(cheatLogBatchSchema), logCheatEventBatch);
 router.get('/:examId/my-status', protect, getMyAttemptStatus);

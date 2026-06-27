@@ -19,7 +19,8 @@ import {
     Users,
     QrCode,
     GraduationCap,
-    CheckCircle
+    CheckCircle,
+    Check
 } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 import { QRCodeSVG } from 'qrcode.react';
@@ -38,6 +39,8 @@ const ExamList = () => {
     // Inline category creation
     const [isCreatingCat, setIsCreatingCat] = useState(false);
     const [newCatName, setNewCatName] = useState('');
+    const [isEditingCategoryName, setIsEditingCategoryName] = useState(false);
+    const [editCategoryNameVal, setEditCategoryNameVal] = useState('');
 
     // Category student enrollment management states
     const [activeTab, setActiveTab] = useState('exams');
@@ -265,6 +268,52 @@ const ExamList = () => {
         }
     };
 
+    const startEditingCategoryName = () => {
+        if (currentCategory) {
+            setEditCategoryNameVal(currentCategory.name);
+            setIsEditingCategoryName(true);
+        }
+    };
+
+    const handleRenameCategory = async (e) => {
+        if (e) e.preventDefault();
+        const trimmed = editCategoryNameVal.trim();
+        if (!trimmed) {
+            setIsEditingCategoryName(false);
+            return;
+        }
+
+        if (trimmed === currentCategory.name) {
+            setIsEditingCategoryName(false);
+            return;
+        }
+
+        if (trimmed.toLowerCase() === 'ทั่วไป' || createdCategories.some(c => c._id !== categoryId && c.name.toLowerCase() === trimmed.toLowerCase())) {
+            setError('ชื่อหมวดหมู่นี้มีอยู่แล้ว');
+            setIsEditingCategoryName(false);
+            return;
+        }
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+
+            const { data } = await api.put(`/exams/categories/${categoryId}`, { name: trimmed }, config);
+            
+            // Update local state
+            setCreatedCategories(prev => prev.map(c => c._id === categoryId ? data : c));
+            setIsEditingCategoryName(false);
+            setError('');
+        } catch (err) {
+            console.error('Failed to rename category:', err);
+            setError(err.response?.data?.message || 'เกิดข้อผิดพลาดในการเปลี่ยนชื่อหมวดหมู่');
+        }
+    };
+
     // Delete category folder from database
     const handleDeleteCategory = async (e, catId) => {
         e.stopPropagation();
@@ -368,7 +417,42 @@ const ExamList = () => {
                                     รายการข้อสอบ
                                 </span>
                                 <ChevronRight size={20} className="text-gray-400" />
-                                <span className="text-indigo-600">{currentFolder || 'กำลังโหลด...'}</span>
+                                {isEditingCategoryName ? (
+                                    <form onSubmit={handleRenameCategory} className="inline-flex items-center gap-1.5 font-sans" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                            type="text"
+                                            autoFocus
+                                            value={editCategoryNameVal}
+                                            onChange={(e) => setEditCategoryNameVal(e.target.value)}
+                                            onBlur={handleRenameCategory}
+                                            className="px-2.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white font-sans text-gray-800 font-medium"
+                                        />
+                                        <button 
+                                            type="submit" 
+                                            className="p-1 bg-green-50 hover:bg-green-100 text-green-600 rounded transition"
+                                            title="บันทึก"
+                                        >
+                                            <Check size={14} />
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={(e) => { e.stopPropagation(); setIsEditingCategoryName(false); }}
+                                            className="p-1 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded transition"
+                                            title="ยกเลิก"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </form>
+                                ) : (
+                                    <span 
+                                        onClick={startEditingCategoryName}
+                                        className="text-indigo-600 font-bold hover:text-indigo-800 cursor-pointer flex items-center gap-1.5 group font-sans"
+                                        title="คลิกเพื่อแก้ไขชื่อหมวดหมู่"
+                                    >
+                                        {currentFolder || 'กำลังโหลด...'}
+                                        <Pencil size={14} className="text-gray-400 group-hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    </span>
+                                )}
                             </>
                         ) : (
                             'รายการข้อสอบ'

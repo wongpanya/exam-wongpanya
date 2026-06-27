@@ -359,6 +359,33 @@ const removeStudentFromCategory = asyncHandler(async (req, res) => {
     res.json({ message: 'ลบนักเรียนออกจากรายวิชาสำเร็จ' });
 });
 
+// @desc    Update a category name
+// @route   PUT /api/exams/categories/:id
+// @access  Private/Teacher
+const updateCategory = asyncHandler(async (req, res) => {
+    const { name } = req.body;
+    if (!name) {
+        res.status(400);
+        throw new Error('Please provide category name');
+    }
+
+    const category = await Category.findById(req.params.id);
+    if (!category) {
+        res.status(404);
+        throw new Error('Category not found');
+    }
+
+    if (category.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+        res.status(403);
+        throw new Error('Not authorized');
+    }
+
+    category.name = name.trim();
+    const updatedCategory = await category.save();
+
+    res.json(updatedCategory);
+});
+
 module.exports = {
     createExam,
     getExams,
@@ -373,4 +400,5 @@ module.exports = {
     getCategoryStudents,
     addStudentToCategoryManual,
     removeStudentFromCategory,
+    updateCategory,
 };
