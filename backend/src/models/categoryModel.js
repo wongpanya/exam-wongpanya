@@ -20,6 +20,10 @@ const categorySchema = new mongoose.Schema({
         type: String,
         unique: true,
         sparse: true
+    },
+    isArchived: {
+        type: Boolean,
+        default: false
     }
 }, {
     timestamps: true

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { QrCode, Plus, Play, Pause, Trash2, Check, X, RefreshCw, Users, Clock, AlertCircle } from 'lucide-react';
+import { QrCode, Plus, Play, Pause, Trash2, Check, X, RefreshCw, Users, Clock, AlertCircle, Download, Search, FileSpreadsheet, ArrowUpDown } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import api from '../../config/api';
 import { getSocket } from '../../config/socket';
@@ -31,6 +31,13 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
     const [checkingLogs, setCheckingLogs] = useState([]);
     const [isCheckingActive, setIsCheckingActive] = useState(true);
     const [refreshingLogs, setRefreshingLogs] = useState(false);
+
+    // Overall Summary Matrix states
+    const [viewMode, setViewMode] = useState('sessions'); // 'sessions' or 'matrix'
+    const [matrixSearch, setMatrixSearch] = useState('');
+    const [minAbsencesFilter, setMinAbsencesFilter] = useState(0);
+    const [sortBy, setSortBy] = useState('absences'); // 'absences', 'id', 'name'
+    const [sortOrder, setSortOrder] = useState('desc');
 
     const timerRef = useRef(null);
 
@@ -241,7 +248,7 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
     const handleUpdateInterval = async (seconds) => {
         if (!activeSession) return;
         try {
-            const { data } = await api.post(
+            await api.post(
                 `/attendance/${activeSession._id}/status`,
                 { status: 'active', qrRotateInterval: seconds },
                 getConfig()
@@ -254,6 +261,118 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
         } catch (err) {
             console.error('Failed to change interval:', err);
         }
+    };
+
+    // Sort and filter matrix logic
+    const handleSort = (field) => {
+        if (sortBy === field) {
+            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortBy(field);
+            setSortOrder(field === 'absences' ? 'desc' : 'asc');
+        }
+    };
+
+    // Calculate chronological sessions
+    const chronologicalSessions = [...sessions].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    // Calculate students data for matrix
+    const matrixStudents = categoryStudents.map(student => {
+        let presentCount = 0;
+        let lateCount = 0;
+        let leaveCount = 0;
+        let absentCount = 0;
+
+        const studentSessions = chronologicalSessions.map(sess => {
+            const record = sess.records?.find(r => (r.student?._id || r.student) === student._id);
+            const status = record ? record.status : 'absent';
+            if (status === 'present') presentCount++;
+            else if (status === 'late') lateCount++;
+            else if (status === 'leave') leaveCount++;
+            else if (status === 'absent') absentCount++;
+            return {
+                sessionId: sess._id,
+                status,
+                checkedInAt: record?.checkedInAt || null,
+                remark: record?.remark || ''
+            };
+        });
+
+        const studentId = student.email ? student.email.split('@')[0] : '';
+        const fullName = `${student.firstName} ${student.lastName}`;
+
+        return {
+            _id: student._id,
+            studentId,
+            fullName,
+            email: student.email,
+            phoneNumber: student.phoneNumber,
+            sessions: studentSessions,
+            presentCount,
+            lateCount,
+            leaveCount,
+            absentCount
+        };
+    });
+
+    const filteredMatrixStudents = matrixStudents.filter(s => {
+        const matchesSearch = s.fullName.toLowerCase().includes(matrixSearch.toLowerCase()) ||
+                              s.studentId.toLowerCase().includes(matrixSearch.toLowerCase()) ||
+                              s.email.toLowerCase().includes(matrixSearch.toLowerCase());
+        const matchesAbsence = s.absentCount >= minAbsencesFilter;
+        return matchesSearch && matchesAbsence;
+    });
+
+    const sortedMatrixStudents = [...filteredMatrixStudents].sort((a, b) => {
+        if (sortBy === 'absences') {
+            return sortOrder === 'desc' ? b.absentCount - a.absentCount : a.absentCount - b.absentCount;
+        } else if (sortBy === 'id') {
+            return sortOrder === 'desc' ? b.studentId.localeCompare(a.studentId) : a.studentId.localeCompare(b.studentId);
+        } else if (sortBy === 'name') {
+            return sortOrder === 'desc' ? b.fullName.localeCompare(a.fullName) : a.fullName.localeCompare(b.fullName);
+        }
+        return 0;
+    });
+
+    const handleExportMatrixCSV = () => {
+        if (sortedMatrixStudents.length === 0) return;
+        
+        const sessionHeaders = chronologicalSessions.map(s => s.name);
+        const headers = ['ลำดับ', 'รหัสนิสิต', 'ชื่อ-นามสกุล', 'อีเมล', ...sessionHeaders, 'มาเรียน', 'สาย', 'ลาเรียน', 'ขาดเรียน'];
+        
+        const rows = sortedMatrixStudents.map((s, index) => {
+            const sessionStatuses = s.sessions.map(sess => {
+                if (sess.status === 'present') return 'มาเรียน';
+                if (sess.status === 'late') return 'สาย';
+                if (sess.status === 'leave') return 'ลาเรียน';
+                return 'ขาดเรียน';
+            });
+            return [
+                index + 1,
+                s.studentId,
+                s.fullName,
+                s.email,
+                ...sessionStatuses,
+                s.presentCount,
+                s.lateCount,
+                s.leaveCount,
+                s.absentCount
+            ];
+        });
+        
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+        ].join('\n');
+        
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `สรุปการเช็คชื่อเข้าเรียน.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     return (
@@ -272,80 +391,247 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                 </button>
             </div>
 
-            {/* Attendance Sessions List */}
+            {/* View Mode Toggle Tabs */}
+            <div className="flex border-b border-gray-250 gap-2 mb-4 font-sans">
+                <button
+                    onClick={() => setViewMode('sessions')}
+                    className={`py-2 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5
+                        ${viewMode === 'sessions'
+                            ? 'border-indigo-600 text-indigo-600 border-b-2'
+                            : 'border-transparent text-gray-400 hover:text-gray-600'
+                        }`}
+                >
+                    <Clock size={15} /> รายการเช็คชื่อรายคาบ
+                </button>
+                <button
+                    onClick={() => setViewMode('matrix')}
+                    className={`py-2 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5
+                        ${viewMode === 'matrix'
+                            ? 'border-indigo-600 text-indigo-600 border-b-2'
+                            : 'border-transparent text-gray-400 hover:text-gray-600'
+                        }`}
+                >
+                    <Users size={15} /> ตารางสรุปการเข้าเรียน/ขาดเรียน
+                </button>
+            </div>
+
+            {/* Attendance Content */}
             {loading ? (
                 <div className="flex justify-center py-12">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                 </div>
-            ) : sessions.length === 0 ? (
-                <div className="bg-white rounded-xl border border-gray-150 p-12 text-center">
-                    <Users className="mx-auto text-gray-300 mb-3" size={48} />
-                    <h3 className="text-sm font-bold text-gray-700 font-sans">ยังไม่มีรายการเช็คชื่อเข้าเรียน</h3>
-                    <p className="text-xs text-gray-400 mt-1 mb-4 font-sans">เริ่มต้นเช็คชื่อนิสิตเพื่อบันทึกประวัติการเข้าชั้นเรียน</p>
-                    <button
-                        onClick={() => setShowCreateModal(true)}
-                        className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition font-sans"
-                    >
-                        สร้างการเช็คชื่อรายการแรก
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {sessions.map((sess) => (
-                        <div
-                            key={sess._id}
-                            className="bg-white border border-gray-100 hover:border-indigo-100 hover:shadow-sm rounded-xl p-5 transition flex flex-col justify-between gap-4"
+            ) : viewMode === 'sessions' ? (
+                sessions.length === 0 ? (
+                    <div className="bg-white rounded-xl border border-gray-150 p-12 text-center">
+                        <Users className="mx-auto text-gray-300 mb-3" size={48} />
+                        <h3 className="text-sm font-bold text-gray-700 font-sans">ยังไม่มีรายการเช็คชื่อเข้าเรียน</h3>
+                        <p className="text-xs text-gray-400 mt-1 mb-4 font-sans">เริ่มต้นเช็คชื่อนิสิตเพื่อบันทึกประวัติการเข้าชั้นเรียน</p>
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition font-sans"
                         >
-                            <div className="space-y-1">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="font-bold text-gray-900 text-base font-sans">{sess.name}</h4>
-                                    <span
-                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border font-sans ${
-                                            sess.status === 'active'
-                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                                : 'bg-gray-100 text-gray-600 border-gray-200'
-                                        }`}
-                                    >
-                                        {sess.status === 'active' ? 'กำลังเปิดอยู่' : 'ปิดแล้ว'}
-                                    </span>
-                                </div>
-                                <p className="text-[11px] text-gray-400 font-sans">
-                                    วันที่สร้าง: {new Date(sess.createdAt).toLocaleDateString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                                </p>
-                                {sess.absentCutoffAt && (
-                                    <p className="text-[11px] text-red-500 font-sans flex items-center gap-1">
-                                        <Clock size={11} />
-                                        หมดเขตเช็คชื่อ: {new Date(sess.absentCutoffAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                            สร้างการเช็คชื่อรายการแรก
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {sessions.map((sess) => (
+                            <div
+                                key={sess._id}
+                                className="bg-white border border-gray-100 hover:border-indigo-100 hover:shadow-sm rounded-xl p-5 transition flex flex-col justify-between gap-4"
+                            >
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="font-bold text-gray-900 text-base font-sans">{sess.name}</h4>
+                                        <span
+                                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border font-sans ${
+                                                sess.status === 'active'
+                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                                    : 'bg-gray-100 text-gray-600 border-gray-200'
+                                            }`}
+                                        >
+                                            {sess.status === 'active' ? 'กำลังเปิดอยู่' : 'ปิดแล้ว'}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-400 font-sans">
+                                        วันที่สร้าง: {new Date(sess.createdAt).toLocaleDateString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                                     </p>
-                                )}
+                                    {sess.absentCutoffAt && (
+                                        <p className="text-[11px] text-red-500 font-sans flex items-center gap-1">
+                                            <Clock size={11} />
+                                            หมดเขตเช็คชื่อ: {new Date(sess.absentCutoffAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex items-center justify-between text-xs pt-3 border-t border-gray-50 font-sans font-semibold">
+                                    <span className="text-gray-500 font-sans">
+                                        เช็คชื่อแล้ว: {sess.records?.filter(r => r.status !== 'absent').length || 0} / {categoryStudents.length} คน
+                                    </span>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleOpenChecking(sess)}
+                                            className="px-2.5 py-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg font-bold transition flex items-center gap-1 font-sans"
+                                        >
+                                            <QrCode size={14} /> เปิดจอเช็ค
+                                        </button>
+                                        <button
+                                            onClick={() => navigate(`/teacher/attendance/${sess._id}`)}
+                                            className="px-2.5 py-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg font-bold transition flex items-center gap-1 font-sans"
+                                        >
+                                            <Users size={14} /> ดูสรุป/แก้ไข
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteSession(sess._id, sess.name)}
+                                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                        >
+                                            <Trash2 size={15} />
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="flex items-center justify-between text-xs pt-3 border-t border-gray-50 font-sans font-semibold">
-                                <span className="text-gray-500 font-sans">
-                                    เช็คชื่อแล้ว: {sess.records?.filter(r => r.status !== 'absent').length || 0} / {categoryStudents.length} คน
-                                </span>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => handleOpenChecking(sess)}
-                                        className="px-2.5 py-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg font-bold transition flex items-center gap-1 font-sans"
-                                    >
-                                        <QrCode size={14} /> เปิดจอเช็ค
-                                    </button>
-                                    <button
-                                        onClick={() => navigate(`/teacher/attendance/${sess._id}`)}
-                                        className="px-2.5 py-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg font-bold transition flex items-center gap-1 font-sans"
-                                    >
-                                        <Users size={14} /> ดูสรุป/แก้ไข
-                                    </button>
-                                    <button
-                                        onClick={() => handleDeleteSession(sess._id, sess.name)}
-                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
-                                    >
-                                        <Trash2 size={15} />
-                                    </button>
+                        ))}
+                    </div>
+                )
+            ) : (
+                /* Matrix View */
+                <div className="space-y-4">
+                    {/* Matrix Filters */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gray-50/50 p-4 rounded-xl border border-gray-150">
+                        <div className="flex flex-1 flex-col sm:flex-row gap-3">
+                            {/* Search */}
+                            <div className="relative flex-1">
+                                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                                <input
+                                    type="text"
+                                    value={matrixSearch}
+                                    onChange={(e) => setMatrixSearch(e.target.value)}
+                                    placeholder="ค้นหาชื่อหรือรหัสนิสิต..."
+                                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-sans animate-none"
+                                />
+                            </div>
+                            {/* Absence Threshold Filter */}
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500 font-semibold font-sans whitespace-nowrap">ขาดเรียนอย่างน้อย:</span>
+                                <select
+                                    value={minAbsencesFilter}
+                                    onChange={(e) => setMinAbsencesFilter(Number(e.target.value))}
+                                    className="px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white font-sans"
+                                >
+                                    <option value={0}>ทั้งหมด (0+ ครั้ง)</option>
+                                    <option value={1}>1 ครั้งขึ้นไป</option>
+                                    <option value={2}>2 ครั้งขึ้นไป</option>
+                                    <option value={3}>3 ครั้งขึ้นไป</option>
+                                    <option value={5}>5 ครั้งขึ้นไป</option>
+                                </select>
+                            </div>
+                        </div>
+                        {/* Export CSV Button */}
+                        <button
+                            onClick={handleExportMatrixCSV}
+                            disabled={sortedMatrixStudents.length === 0}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-semibold text-xs flex items-center gap-1.5 transition shadow-sm font-sans"
+                        >
+                            <Download size={14} /> ดาวน์โหลด CSV
+                        </button>
+                    </div>
+
+                    {/* Table Container */}
+                    {sortedMatrixStudents.length === 0 ? (
+                        <div className="bg-white rounded-xl border border-gray-150 p-12 text-center my-4">
+                            <Users className="mx-auto text-gray-300 mb-3" size={48} />
+                            <h3 className="text-sm font-bold text-gray-700 font-sans">ไม่พบข้อมูลนิสิตหรือประวัติการเช็คชื่อ</h3>
+                            <p className="text-xs text-gray-400 mt-1 font-sans">กรุณาตรวจสอบว่ามีนิสิตลงทะเบียนในวิชานี้ หรือลองเปลี่ยนตัวเลือกการกรองข้อมูล</p>
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto border border-gray-150 rounded-xl shadow-sm bg-white">
+                            <div className="inline-block min-w-full align-middle">
+                                <div className="overflow-hidden border-b border-gray-150 rounded-xl">
+                                    <table className="min-w-full divide-y divide-gray-150 text-xs font-sans relative border-collapse">
+                                        <thead className="bg-gray-50 font-bold text-gray-700 sticky top-0 z-20">
+                                            <tr>
+                                                <th scope="col" className="px-3 py-3 text-center border-b border-r border-gray-200 bg-gray-50 sticky left-0 z-30 w-[50px] min-w-[50px] max-w-[50px]">
+                                                    ลำดับ
+                                                </th>
+                                                <th scope="col" onClick={() => handleSort('id')} className="px-4 py-3 text-left border-b border-r border-gray-200 bg-gray-50 sticky left-[50px] z-30 cursor-pointer hover:bg-gray-100 w-[110px] min-w-[110px] max-w-[110px]">
+                                                    <div className="flex items-center gap-1">
+                                                        รหัสนิสิต
+                                                        <ArrowUpDown size={12} className="text-gray-400" />
+                                                    </div>
+                                                </th>
+                                                <th scope="col" onClick={() => handleSort('name')} className="px-4 py-3 text-left border-b border-r border-gray-200 bg-gray-50 sticky left-[160px] z-30 cursor-pointer hover:bg-gray-100 w-[180px] min-w-[180px] max-w-[180px]">
+                                                    <div className="flex items-center gap-1">
+                                                        ชื่อ-นามสกุล
+                                                        <ArrowUpDown size={12} className="text-gray-400" />
+                                                    </div>
+                                                </th>
+                                                {/* Sessions columns */}
+                                                {chronologicalSessions.map((sess) => (
+                                                    <th key={sess._id} className="px-3 py-3 text-center border-b border-r border-gray-150 min-w-[110px] bg-gray-50 font-sans" title={sess.name}>
+                                                        <div className="truncate max-w-[100px] mx-auto text-gray-700 font-semibold">{sess.name}</div>
+                                                    </th>
+                                                ))}
+                                                {/* Stats columns */}
+                                                <th scope="col" className="px-3 py-3 text-center border-b border-r border-gray-150 bg-green-50/50 min-w-[60px] text-emerald-800">มา</th>
+                                                <th scope="col" className="px-3 py-3 text-center border-b border-r border-gray-150 bg-amber-50/50 min-w-[60px] text-amber-800">สาย</th>
+                                                <th scope="col" className="px-3 py-3 text-center border-b border-r border-gray-150 bg-blue-50/50 min-w-[60px] text-blue-800">ลา</th>
+                                                <th scope="col" onClick={() => handleSort('absences')} className="px-3 py-3 text-center border-b border-gray-200 bg-red-50/50 cursor-pointer hover:bg-red-100 min-w-[80px] text-red-800">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        ขาด
+                                                        <ArrowUpDown size={12} className="text-red-400" />
+                                                    </div>
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-150">
+                                            {sortedMatrixStudents.map((s, idx) => (
+                                                <tr key={s._id} className="hover:bg-gray-50/70">
+                                                    <td className="px-3 py-3 text-center border-r border-gray-200 bg-white sticky left-0 z-10 font-medium text-gray-500 w-[50px] min-w-[50px] max-w-[50px]">
+                                                        {idx + 1}
+                                                    </td>
+                                                    <td className="px-4 py-3 border-r border-gray-200 bg-white sticky left-[50px] z-10 font-mono text-gray-600 font-medium w-[110px] min-w-[110px] max-w-[110px] truncate">
+                                                        {s.studentId || '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3 border-r border-gray-200 bg-white sticky left-[160px] z-10 font-semibold text-gray-800 w-[180px] min-w-[180px] max-w-[180px] truncate" title={s.fullName}>
+                                                        {s.fullName}
+                                                    </td>
+                                                    {/* Sessions statuses */}
+                                                    {s.sessions.map((sess) => {
+                                                        let badgeClass = '';
+                                                        let label = '';
+                                                        if (sess.status === 'present') {
+                                                            badgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                                                            label = 'มา';
+                                                        } else if (sess.status === 'late') {
+                                                            badgeClass = 'bg-amber-50 text-amber-600 border-amber-200';
+                                                            label = 'สาย';
+                                                        } else if (sess.status === 'leave') {
+                                                            badgeClass = 'bg-blue-50 text-blue-700 border-blue-100';
+                                                            label = 'ลา';
+                                                        } else {
+                                                            badgeClass = 'bg-red-50 text-red-600 border-red-200';
+                                                            label = 'ขาด';
+                                                        }
+                                                        return (
+                                                            <td key={sess.sessionId} className="px-3 py-3 text-center border-r border-gray-150">
+                                                                <span className={`inline-flex px-2.5 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`} title={sess.remark || undefined}>
+                                                                    {label}
+                                                                </span>
+                                                            </td>
+                                                        );
+                                                    })}
+                                                    {/* Stats counts */}
+                                                    <td className="px-3 py-3 text-center border-r border-gray-150 bg-green-50/10 font-bold text-emerald-700">{s.presentCount}</td>
+                                                    <td className="px-3 py-3 text-center border-r border-gray-150 bg-amber-50/10 font-bold text-amber-600">{s.lateCount}</td>
+                                                    <td className="px-3 py-3 text-center border-r border-gray-150 bg-blue-50/10 font-bold text-blue-700">{s.leaveCount}</td>
+                                                    <td className="px-3 py-3 text-center border-gray-200 bg-red-50/10 font-bold text-red-600">{s.absentCount}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
-                    ))}
+                    )}
                 </div>
             )}
 

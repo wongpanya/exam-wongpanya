@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../config/api';
 import { 
@@ -20,7 +20,9 @@ import {
     QrCode,
     GraduationCap,
     CheckCircle,
-    Check
+    Check,
+    Archive,
+    RotateCcw
 } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 import { QRCodeSVG } from 'qrcode.react';
@@ -35,6 +37,7 @@ const ExamList = () => {
     // States for custom categories & drag-over tracking
     const [createdCategories, setCreatedCategories] = useState([]);
     const [draggedOverFolder, setDraggedOverFolder] = useState(null);
+    const [showArchived, setShowArchived] = useState(false);
     
     // Inline category creation
     const [isCreatingCat, setIsCreatingCat] = useState(false);
@@ -58,7 +61,7 @@ const ExamList = () => {
     const currentCategory = createdCategories.find(c => c._id === categoryId);
     const currentFolder = currentCategory ? currentCategory.name : null;
 
-    const fetchExamsAndCategories = async () => {
+    const fetchExamsAndCategories = useCallback(async () => {
         try {
             const user = JSON.parse(localStorage.getItem('user'));
             const config = {
@@ -67,9 +70,10 @@ const ExamList = () => {
                 },
             };
 
+            const archivedParam = categoryId ? 'all' : showArchived;
             const [examsRes, categoriesRes] = await Promise.all([
                 api.get('/exams', config),
-                api.get('/exams/categories', config)
+                api.get(`/exams/categories?archived=${archivedParam}`, config)
             ]);
 
             setExams(examsRes.data);
@@ -80,11 +84,11 @@ const ExamList = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [showArchived, categoryId]);
 
     useEffect(() => {
         fetchExamsAndCategories();
-    }, []);
+    }, [fetchExamsAndCategories]);
 
     // Reset activeTab when categoryId changes
     useEffect(() => {
@@ -349,6 +353,67 @@ const ExamList = () => {
         }
     };
 
+    // Archive category folder
+    const handleArchiveCategory = async (e, catId) => {
+        e.stopPropagation();
+        const ok = await showConfirm({
+            title: 'จัดเก็บหมวดหมู่',
+            message: 'คุณต้องการจัดเก็บหมวดหมู่นี้ใช่หรือไม่? (ข้อสอบจะยังอยู่ แต่จะมองไม่เห็นในหน้าหลัก)',
+            confirmText: 'จัดเก็บ',
+            variant: 'warning'
+        });
+        if (!ok) return;
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+            
+            await api.put(`/exams/categories/${catId}/archive`, {}, config);
+            
+            // Remove from list locally
+            setCreatedCategories(prev => prev.filter(c => c._id !== catId));
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to archive category');
+        }
+    };
+
+    // Restore category folder
+    const handleRestoreCategory = async (e, catId) => {
+        e.stopPropagation();
+        const ok = await showConfirm({
+            title: 'กู้คืนหมวดหมู่',
+            message: 'คุณต้องการกู้คืนหมวดหมู่นี้ใช่หรือไม่? (หมวดหมู่นี้จะถูกนำกลับมาแสดงในหน้าหลัก)',
+            confirmText: 'กู้คืน',
+            variant: 'primary'
+        });
+        if (!ok) return;
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: {
+                    Authorization: `Bearer ${user.token}`,
+                },
+            };
+            
+            await api.put(`/exams/categories/${catId}/restore`, {}, config);
+            
+            // Remove from list locally (since we are in archived list view)
+            setCreatedCategories(prev => prev.filter(c => c._id !== catId));
+            
+            // If we are currently inside this category page, redirect to active view or re-fetch
+            if (categoryId === catId) {
+                fetchExamsAndCategories();
+            }
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to restore category');
+        }
+    };
+
     // Move back to general
     const handleMoveToGeneral = async (examId) => {
         const ok = await showConfirm({
@@ -482,6 +547,21 @@ const ExamList = () => {
                 </div>
             )}
 
+            {categoryId && currentCategory?.isArchived && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-3 text-amber-800 text-sm font-sans mb-4">
+                    <div className="flex items-center gap-2">
+                        <Archive size={18} className="text-amber-600 shrink-0" />
+                        <span>หมวดหมู่นี้ถูกจัดเก็บอยู่ในคลังจัดเก็บ คุณสามารถกู้คืนเพื่อนำกลับมาแสดงในหน้าหลักได้</span>
+                    </div>
+                    <button
+                        onClick={(e) => handleRestoreCategory(e, categoryId)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-sm whitespace-nowrap"
+                    >
+                        กู้คืนหมวดหมู่
+                    </button>
+                </div>
+            )}
+
             {/* Search filter bar */}
             {exams.length > 0 && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex items-center gap-4">
@@ -505,104 +585,159 @@ const ExamList = () => {
             {/* 1. Folders Section (Only shown on main view) */}
             {!categoryId && (
                 <div className="space-y-3">
-                    <h2 className="text-lg font-bold text-gray-800">หมวดหมู่ข้อสอบ (ห้อง, รายวิชา)</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {/* Categories List */}
-                        {createdCategories.map((cat) => {
-                            const count = exams.filter(e => e.category && e.category._id === cat._id).length;
-                            const isOver = draggedOverFolder === cat._id;
-                            return (
-                                <div
-                                    key={cat._id}
-                                    onClick={() => navigate(`/teacher/exams/category/${cat._id}`)}
-                                    onDragOver={(e) => handleDragOver(e, cat._id)}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={(e) => handleDrop(e, cat._id)}
-                                    className={`cursor-pointer rounded-xl border p-5 transition-all duration-200 flex flex-col justify-between group h-36 relative select-none
-                                        ${isOver 
-                                            ? 'border-indigo-500 bg-indigo-50/70 scale-105 shadow-md ring-2 ring-indigo-400/50' 
-                                            : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm hover:-translate-y-0.5'
-                                        }`}
-                                >
-                                    {/* Delete icon on hover */}
-                                    <button
-                                        onClick={(e) => handleDeleteCategory(e, cat._id)}
-                                        className="absolute top-2 right-2 p-1 text-gray-300 hover:text-red-500 hover:bg-gray-100 rounded-md transition opacity-0 group-hover:opacity-100"
-                                        title="ลบหมวดหมู่"
-                                    >
-                                        <X size={14} />
-                                    </button>
+                    <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                        <h2 className="text-lg font-bold text-gray-800">
+                            {showArchived ? 'คลังจัดเก็บหมวดหมู่ข้อสอบ (ห้อง, รายวิชา)' : 'หมวดหมู่ข้อสอบ (ห้อง, รายวิชา)'}
+                        </h2>
+                        <button
+                            onClick={() => setShowArchived(prev => !prev)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center gap-1.5
+                                ${showArchived 
+                                    ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                        >
+                            <Archive size={14} /> {showArchived ? 'ดูหมวดหมู่ทั่วไป' : 'ดูคลังจัดเก็บ'}
+                        </button>
+                    </div>
 
-                                    <div className="flex items-start">
-                                        <div className={`p-2 rounded-lg transition-colors
+                    {showArchived && createdCategories.length === 0 ? (
+                        <div className="bg-white rounded-xl border border-gray-150 p-12 text-center">
+                            <Archive className="mx-auto text-gray-300 mb-3" size={48} />
+                            <h3 className="text-sm font-bold text-gray-700 font-sans">คลังจัดเก็บว่างเปล่า</h3>
+                            <p className="text-xs text-gray-400 mt-1 font-sans">คุณไม่มีหมวดหมู่ที่ถูกจัดเก็บในขณะนี้</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {/* Categories List */}
+                            {createdCategories.map((cat) => {
+                                const count = exams.filter(e => e.category && e.category._id === cat._id).length;
+                                const isOver = draggedOverFolder === cat._id;
+                                return (
+                                    <div
+                                        key={cat._id}
+                                        onClick={() => navigate(`/teacher/exams/category/${cat._id}`)}
+                                        onDragOver={(e) => handleDragOver(e, cat._id)}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={(e) => handleDrop(e, cat._id)}
+                                        className={`cursor-pointer rounded-xl border p-5 transition-all duration-200 flex flex-col justify-between group h-36 relative select-none
                                             ${isOver 
-                                                ? 'bg-indigo-600 text-white' 
-                                                : 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100'
+                                                ? 'border-indigo-500 bg-indigo-50/70 scale-105 shadow-md ring-2 ring-indigo-400/50' 
+                                                : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm hover:-translate-y-0.5'
                                             }`}
-                                        >
-                                            {isOver ? <FolderOpen size={20} /> : <Folder size={20} />}
+                                    >
+                                        {/* Action icons on hover */}
+                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition z-10">
+                                            {showArchived ? (
+                                                <>
+                                                    <button
+                                                        onClick={(e) => handleRestoreCategory(e, cat._id)}
+                                                        className="p-1 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-md transition"
+                                                        title="กู้คืนหมวดหมู่"
+                                                    >
+                                                        <RotateCcw size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleDeleteCategory(e, cat._id)}
+                                                        className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-md transition"
+                                                        title="ลบหมวดหมู่ถาวร"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        onClick={(e) => handleArchiveCategory(e, cat._id)}
+                                                        className="p-1 text-gray-400 hover:text-amber-600 hover:bg-gray-100 rounded-md transition"
+                                                        title="จัดเก็บหมวดหมู่"
+                                                    >
+                                                        <Archive size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleDeleteCategory(e, cat._id)}
+                                                        className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-md transition"
+                                                        title="ลบหมวดหมู่"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-start">
+                                            <div className={`p-2 rounded-lg transition-colors
+                                                ${isOver 
+                                                    ? 'bg-indigo-600 text-white' 
+                                                    : 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100'
+                                                }`}
+                                            >
+                                                {isOver ? <FolderOpen size={20} /> : <Folder size={20} />}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="space-y-0.5 min-w-0">
+                                            <h3 className="font-semibold text-gray-800 group-hover:text-indigo-600 text-sm truncate pr-4">
+                                                {cat.name}
+                                            </h3>
+                                            <p className="text-[11px] text-gray-400">
+                                                {count} ข้อสอบ
+                                            </p>
                                         </div>
                                     </div>
-                                    
-                                    <div className="space-y-0.5 min-w-0">
-                                        <h3 className="font-semibold text-gray-800 group-hover:text-indigo-600 text-sm truncate pr-4">
-                                            {cat.name}
-                                        </h3>
-                                        <p className="text-[11px] text-gray-400">
-                                            {count} ข้อสอบ
-                                        </p>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
 
-                        {/* Add category card */}
-                        <div
-                            className={`rounded-xl border border-dashed border-gray-300 p-5 transition-all duration-200 flex flex-col justify-center items-center h-36 text-center
-                                ${isCreatingCat ? 'bg-white border-indigo-400' : 'bg-gray-50/50 hover:bg-white hover:border-indigo-300 hover:shadow-sm cursor-pointer'}`}
-                            onClick={() => !isCreatingCat && setIsCreatingCat(true)}
-                        >
-                            {isCreatingCat ? (
-                                <form onSubmit={handleCreateCategory} className="w-full space-y-2">
-                                    <input
-                                        type="text"
-                                        autoFocus
-                                        placeholder="ชื่อหมวดหมู่..."
-                                        value={newCatName}
-                                        onChange={(e) => setNewCatName(e.target.value)}
-                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none text-center"
-                                        onBlur={() => {
-                                            if (!newCatName.trim()) setIsCreatingCat(false);
-                                        }}
-                                    />
-                                    <div className="flex justify-center gap-1">
-                                        <button
-                                            type="submit"
-                                            className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[10px] font-semibold hover:bg-indigo-700"
-                                        >
-                                            เพิ่ม
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setIsCreatingCat(false);
-                                                setNewCatName('');
-                                            }}
-                                            className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] font-semibold hover:bg-gray-300"
-                                        >
-                                            ยกเลิก
-                                        </button>
-                                    </div>
-                                </form>
-                            ) : (
-                                <>
-                                    <FolderPlus size={20} className="text-gray-400 mb-1" />
-                                    <span className="text-xs font-medium text-gray-500">สร้างหมวดหมู่ใหม่</span>
-                                </>
+                            {/* Add category card */}
+                            {!showArchived && (
+                                <div
+                                    className={`rounded-xl border border-dashed border-gray-300 p-5 transition-all duration-200 flex flex-col justify-center items-center h-36 text-center
+                                        ${isCreatingCat ? 'bg-white border-indigo-400' : 'bg-gray-50/50 hover:bg-white hover:border-indigo-300 hover:shadow-sm cursor-pointer'}`}
+                                    onClick={() => !isCreatingCat && setIsCreatingCat(true)}
+                                >
+                                    {isCreatingCat ? (
+                                        <form onSubmit={handleCreateCategory} className="w-full space-y-2">
+                                            <input
+                                                type="text"
+                                                autoFocus
+                                                placeholder="ชื่อหมวดหมู่..."
+                                                value={newCatName}
+                                                onChange={(e) => setNewCatName(e.target.value)}
+                                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:outline-none text-center bg-white"
+                                                onBlur={() => {
+                                                    if (!newCatName.trim()) setIsCreatingCat(false);
+                                                }}
+                                            />
+                                            <div className="flex justify-center gap-1">
+                                                <button
+                                                    type="submit"
+                                                    className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[10px] font-semibold hover:bg-indigo-700"
+                                                >
+                                                    เพิ่ม
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setIsCreatingCat(false);
+                                                        setNewCatName('');
+                                                    }}
+                                                    className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] font-semibold hover:bg-gray-300"
+                                                >
+                                                    ยกเลิก
+                                                </button>
+                                            </div>
+                                        </form>
+                                    ) : (
+                                        <>
+                                            <FolderPlus size={20} className="text-gray-400 mb-1" />
+                                            <span className="text-xs font-medium text-gray-500">สร้างหมวดหมู่ใหม่</span>
+                                        </>
+                                    )}
+                                </div>
                             )}
                         </div>
-                    </div>
+                    )}
                 </div>
             )}
 

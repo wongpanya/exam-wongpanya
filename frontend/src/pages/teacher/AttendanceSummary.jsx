@@ -188,7 +188,7 @@ export default function AttendanceSummary() {
             s.email,
             s.phoneNumber || '',
             s.checkedInAt ? new Date(s.checkedInAt).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-',
-            s.status === 'present' ? 'มาเรียน' : s.status === 'late' ? 'สาย' : 'ขาดเรียน',
+            s.status === 'present' ? 'มาเรียน' : s.status === 'late' ? 'สาย' : s.status === 'leave' ? 'ลาเรียน' : 'ขาดเรียน',
             s.remark || ''
         ]);
         
@@ -212,6 +212,7 @@ export default function AttendanceSummary() {
     const totalCount = students.length;
     const presentCount = students.filter(s => s.status === 'present').length;
     const lateCount = students.filter(s => s.status === 'late').length;
+    const leaveCount = students.filter(s => s.status === 'leave').length;
     const checkedCount = presentCount + lateCount;
     const absentCount = students.filter(s => s.status === 'absent').length;
     const attendanceRate = totalCount > 0 ? ((checkedCount / totalCount) * 100).toFixed(1) : 0;
@@ -444,6 +445,16 @@ export default function AttendanceSummary() {
                     >
                         ขาดเรียน ({absentCount})
                     </button>
+                    <button
+                        onClick={() => setStatusFilter('leave')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                            statusFilter === 'leave' 
+                                ? 'bg-blue-500 text-white shadow-sm' 
+                                : 'text-gray-500 hover:text-blue-500'
+                        }`}
+                    >
+                        ลาเรียน ({leaveCount})
+                    </button>
                 </div>
             </div>
 
@@ -487,7 +498,7 @@ export default function AttendanceSummary() {
                                                 {checkedInTime}
                                             </td>
                                             <td className="py-3 px-4">
-                                                <div className="flex border border-gray-200 rounded-lg overflow-hidden w-full max-w-[220px] mx-auto text-xs font-bold">
+                                                <div className="flex border border-gray-200 rounded-lg overflow-hidden w-full max-w-[260px] mx-auto text-xs font-bold">
                                                     <button
                                                         onClick={() => handleStatusUpdate(s._id, 'present')}
                                                         className={`flex-1 py-1.5 text-center transition ${
@@ -513,10 +524,20 @@ export default function AttendanceSummary() {
                                                         className={`flex-1 py-1.5 text-center transition ${
                                                             s.status === 'absent'
                                                                 ? 'bg-red-500 text-white shadow-inner'
-                                                                : 'bg-white text-gray-600 hover:bg-red-50 hover:text-red-700'
+                                                                : 'bg-white text-gray-600 hover:bg-red-50 hover:text-red-700 border-r border-gray-150'
                                                         }`}
                                                     >
                                                         ขาด
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleStatusUpdate(s._id, 'leave')}
+                                                        className={`flex-1 py-1.5 text-center transition ${
+                                                            s.status === 'leave'
+                                                                ? 'bg-blue-500 text-white shadow-inner'
+                                                                : 'bg-white text-gray-600 hover:bg-blue-50 hover:text-blue-700'
+                                                        }`}
+                                                    >
+                                                        ลา
                                                     </button>
                                                 </div>
                                             </td>

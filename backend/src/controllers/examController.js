@@ -161,6 +161,16 @@ const getDistinctCategories = asyncHandler(async (req, res) => {
     if (req.user.email !== '66025694@up.ac.th') {
         query = { createdBy: req.user._id };
     }
+    
+    const showArchived = req.query.archived;
+    if (showArchived === 'true') {
+        query.isArchived = true;
+    } else if (showArchived === 'all') {
+        // Do not filter by isArchived, return all categories
+    } else {
+        query.isArchived = { $ne: true };
+    }
+
     const categories = await Category.find(query).sort({ name: 1 });
     res.json(categories);
 });
@@ -386,6 +396,44 @@ const updateCategory = asyncHandler(async (req, res) => {
     res.json(updatedCategory);
 });
 
+// @desc    Archive a category
+// @route   PUT /api/exams/categories/:id/archive
+// @access  Private/Teacher
+const archiveCategory = asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id);
+    if (!category) {
+        res.status(404);
+        throw new Error('Category not found');
+    }
+    if (category.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+        res.status(403);
+        throw new Error('Not authorized');
+    }
+    
+    category.isArchived = true;
+    await category.save();
+    res.json({ message: 'Category archived successfully', category });
+});
+
+// @desc    Restore a category
+// @route   PUT /api/exams/categories/:id/restore
+// @access  Private/Teacher
+const restoreCategory = asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id);
+    if (!category) {
+        res.status(404);
+        throw new Error('Category not found');
+    }
+    if (category.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
+        res.status(403);
+        throw new Error('Not authorized');
+    }
+    
+    category.isArchived = false;
+    await category.save();
+    res.json({ message: 'Category restored successfully', category });
+});
+
 module.exports = {
     createExam,
     getExams,
@@ -401,4 +449,6 @@ module.exports = {
     addStudentToCategoryManual,
     removeStudentFromCategory,
     updateCategory,
+    archiveCategory,
+    restoreCategory,
 };
