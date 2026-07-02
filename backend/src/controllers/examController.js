@@ -4,6 +4,203 @@ const Exam = require('../models/examModel');
 const Category = require('../models/categoryModel');
 const User = require('../models/userModel');
 
+const IMPORT_MATCH_MODES = ['studentCode', 'email', 'both'];
+
+const isPrivilegedTeacher = (category, user) => (
+    category.createdBy.toString() === user._id.toString() || user.email === '66025694@up.ac.th'
+);
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeImportValue = (value) => String(value || '').trim();
+
+const normalizeEmail = (value) => normalizeImportValue(value).toLowerCase();
+
+const normalizeStudentCode = (value) => normalizeImportValue(value).toLowerCase();
+
+const formatStudent = (student) => ({
+    _id: student._id,
+    firstName: student.firstName,
+    lastName: student.lastName,
+    title: student.title,
+    email: student.email,
+    phoneNumber: student.phoneNumber
+});
+
+const findStudentByEmail = async (email) => {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return null;
+    return User.findOne({
+        role: 'student',
+        email: new RegExp(`^${escapeRegex(normalized)}$`, 'i')
+    });
+};
+
+const findStudentByCode = async (studentCode) => {
+    const normalized = normalizeStudentCode(studentCode);
+    if (!normalized) return null;
+    return User.findOne({
+        role: 'student',
+        email: new RegExp(`^${escapeRegex(normalized)}@`, 'i')
+    });
+};
+
+const getImportMatchResult = async ({ studentCode, email, matchMode }) => {
+    const hasCode = Boolean(normalizeStudentCode(studentCode));
+    const hasEmail = Boolean(normalizeEmail(email));
+
+    if (matchMode === 'studentCode') {
+        if (!hasCode) return { status: 'invalid', message: 'ไม่มีรหัสนักเรียน' };
+        const student = await findStudentByCode(studentCode);
+        return student ? { status: 'matched', student } : { status: 'not_found', message: 'ไม่พบผู้เรียนจากรหัสนักเรียนนี้' };
+    }
+
+    if (matchMode === 'email') {
+        if (!hasEmail) return { status: 'invalid', message: 'ไม่มี Email' };
+        const student = await findStudentByEmail(email);
+        return student ? { status: 'matched', student } : { status: 'not_found', message: 'ไม่พบผู้เรียนจาก Email นี้' };
+    }
+
+    if (!hasCode && !hasEmail) {
+        return { status: 'invalid', message: 'ไม่มีรหัสนักเรียนหรือ Email' };
+    }
+
+    const [studentByCode, studentByEmail] = await Promise.all([
+        hasCode ? findStudentByCode(studentCode) : null,
+        hasEmail ? findStudentByEmail(email) : null
+    ]);
+
+    if (hasCode && hasEmail) {
+        if (!studentByCode || !studentByEmail) {
+            return { status: 'not_found', message: 'ไม่พบผู้เรียนจากรหัสนักเรียนหรือ Email ที่เลือก' };
+        }
+
+        if (studentByCode._id.toString() !== studentByEmail._id.toString()) {
+            return { status: 'conflict', message: 'รหัสนักเรียนและ Email ตรงกับผู้เรียนคนละบัญชี' };
+        }
+
+        return { status: 'matched', student: studentByCode };
+    }
+
+    const student = studentByCode || studentByEmail;
+    return student ? { status: 'matched', student } : { status: 'not_found', message: 'ไม่พบผู้เรียนในระบบ' };
+};
+
+const getCategoryForStudentImport = async (categoryId, user) => {
+    const category = await Category.findById(categoryId);
+    if (!category) {
+        const err = new Error('Category not found');
+        err.statusCode = 404;
+        throw err;
+    }
+
+    if (!isPrivilegedTeacher(category, user)) {
+        const err = new Error('Not authorized');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    return category;
+};
+
+const buildStudentImportPreview = async ({ category, rows, matchMode }) => {
+    const safeRows = Array.isArray(rows) ? rows.slice(0, 1000) : [];
+    const selectedMode = IMPORT_MATCH_MODES.includes(matchMode) ? matchMode : 'studentCode';
+    const codeCounts = new Map();
+    const emailCounts = new Map();
+
+    safeRows.forEach((row) => {
+        const code = normalizeStudentCode(row.studentCode);
+        const email = normalizeEmail(row.email);
+        if ((selectedMode === 'studentCode' || selectedMode === 'both') && code) {
+            codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+        }
+        if ((selectedMode === 'email' || selectedMode === 'both') && email) {
+            emailCounts.set(email, (emailCounts.get(email) || 0) + 1);
+        }
+    });
+
+    const enrolledIds = new Set((category.students || []).map((studentId) => studentId.toString()));
+    const matchedIdsInFile = new Set();
+    const previewRows = [];
+
+    for (const row of safeRows) {
+        const studentCode = normalizeImportValue(row.studentCode);
+        const email = normalizeImportValue(row.email);
+        const normalizedCode = normalizeStudentCode(studentCode);
+        const normalizedEmail = normalizeEmail(email);
+        const isDuplicateIdentifier =
+            ((selectedMode === 'studentCode' || selectedMode === 'both') && normalizedCode && codeCounts.get(normalizedCode) > 1) ||
+            ((selectedMode === 'email' || selectedMode === 'both') && normalizedEmail && emailCounts.get(normalizedEmail) > 1);
+
+        const previewRow = {
+            rowNumber: Number(row.rowNumber) || previewRows.length + 2,
+            studentCode,
+            email,
+            status: 'invalid',
+            message: '',
+            student: null
+        };
+
+        if (isDuplicateIdentifier) {
+            previewRows.push({
+                ...previewRow,
+                status: 'duplicate',
+                message: 'ข้อมูลซ้ำในไฟล์'
+            });
+            continue;
+        }
+
+        const matchResult = await getImportMatchResult({ studentCode, email, matchMode: selectedMode });
+        if (matchResult.status !== 'matched') {
+            previewRows.push({
+                ...previewRow,
+                status: matchResult.status,
+                message: matchResult.message
+            });
+            continue;
+        }
+
+        const studentId = matchResult.student._id.toString();
+        if (matchedIdsInFile.has(studentId)) {
+            previewRows.push({
+                ...previewRow,
+                status: 'duplicate',
+                message: 'ผู้เรียนซ้ำในไฟล์',
+                student: formatStudent(matchResult.student)
+            });
+            continue;
+        }
+
+        matchedIdsInFile.add(studentId);
+
+        if (enrolledIds.has(studentId)) {
+            previewRows.push({
+                ...previewRow,
+                status: 'already_exists',
+                message: 'มีอยู่ในชั้นเรียนแล้ว',
+                student: formatStudent(matchResult.student)
+            });
+            continue;
+        }
+
+        previewRows.push({
+            ...previewRow,
+            status: 'ready',
+            message: 'พร้อมเพิ่ม',
+            student: formatStudent(matchResult.student)
+        });
+    }
+
+    const summary = previewRows.reduce((acc, row) => {
+        acc.total += 1;
+        acc[row.status] = (acc[row.status] || 0) + 1;
+        return acc;
+    }, { total: 0, ready: 0, already_exists: 0, not_found: 0, duplicate: 0, conflict: 0, invalid: 0 });
+
+    return { rows: previewRows, summary };
+};
+
 // @desc    Create a new exam
 // @route   POST /api/exams
 // @access  Private/Teacher
@@ -345,6 +542,63 @@ const addStudentToCategoryManual = asyncHandler(async (req, res) => {
     });
 });
 
+// @desc    Preview imported students before adding to a category
+// @route   POST /api/exams/categories/:id/students/import/preview
+// @access  Private/Teacher
+const previewStudentImport = asyncHandler(async (req, res) => {
+    const { rows, matchMode } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+        res.status(400);
+        throw new Error('ไม่พบข้อมูลสำหรับนำเข้า');
+    }
+
+    if (rows.length > 1000) {
+        res.status(400);
+        throw new Error('นำเข้าได้สูงสุด 1,000 รายการต่อครั้ง');
+    }
+
+    const category = await getCategoryForStudentImport(req.params.id, req.user);
+    const preview = await buildStudentImportPreview({ category, rows, matchMode });
+
+    res.json(preview);
+});
+
+// @desc    Confirm imported students and add valid rows to a category
+// @route   POST /api/exams/categories/:id/students/import/confirm
+// @access  Private/Teacher
+const confirmStudentImport = asyncHandler(async (req, res) => {
+    const { rows, matchMode } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+        res.status(400);
+        throw new Error('ไม่พบข้อมูลสำหรับนำเข้า');
+    }
+
+    if (rows.length > 1000) {
+        res.status(400);
+        throw new Error('นำเข้าได้สูงสุด 1,000 รายการต่อครั้ง');
+    }
+
+    const category = await getCategoryForStudentImport(req.params.id, req.user);
+    const preview = await buildStudentImportPreview({ category, rows, matchMode });
+    const readyStudents = preview.rows
+        .filter((row) => row.status === 'ready' && row.student?._id)
+        .map((row) => row.student);
+
+    if (readyStudents.length > 0) {
+        await Category.updateOne(
+            { _id: category._id },
+            { $addToSet: { students: { $each: readyStudents.map((student) => student._id) } } }
+        );
+    }
+
+    res.json({
+        message: `เพิ่มนักเรียนสำเร็จ ${readyStudents.length} คน`,
+        importedCount: readyStudents.length,
+        students: readyStudents,
+        preview
+    });
+});
+
 // @desc    Remove a student from a category
 // @route   DELETE /api/exams/categories/:id/students/:studentId
 // @access  Private/Teacher
@@ -447,6 +701,8 @@ module.exports = {
     getMyJoinedCategories,
     getCategoryStudents,
     addStudentToCategoryManual,
+    previewStudentImport,
+    confirmStudentImport,
     removeStudentFromCategory,
     updateCategory,
     archiveCategory,

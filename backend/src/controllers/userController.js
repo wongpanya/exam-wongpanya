@@ -5,6 +5,36 @@ const User = require('../models/userModel');
 const ExamAttempt = require('../models/examAttemptModel');
 const jwt = require('jsonwebtoken');
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const buildStudentListQuery = (search = '') => {
+    const query = { role: 'student' };
+    const trimmedSearch = String(search || '').trim();
+
+    if (!trimmedSearch) return query;
+
+    const searchRegex = new RegExp(escapeRegex(trimmedSearch), 'i');
+    query.$or = [
+        { title: searchRegex },
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { email: searchRegex },
+        { phoneNumber: searchRegex }
+    ];
+
+    return query;
+};
+
+const getStudentCode = (email = '') => String(email).split('@')[0] || '';
+
+const escapeCsvValue = (value) => {
+    const stringValue = String(value ?? '');
+    if (/[",\n\r]/.test(stringValue)) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
+};
+
 // Generate JWT Token
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -83,8 +113,66 @@ const authUser = asyncHandler(async (req, res) => {
 // @route   GET /api/users/students
 // @access  Private/Teacher
 const getStudents = asyncHandler(async (req, res) => {
-    const students = await User.find({ role: 'student' }).select('-password');
-    res.json(students);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const skip = (page - 1) * limit;
+    const query = buildStudentListQuery(req.query.search);
+
+    const [students, total] = await Promise.all([
+        User.find(query)
+            .select('-password')
+            .sort({ createdAt: -1, _id: -1 })
+            .skip(skip)
+            .limit(limit),
+        User.countDocuments(query)
+    ]);
+
+    const totalPages = Math.max(Math.ceil(total / limit), 1);
+
+    res.json({
+        students,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+            hasNextPage: page < totalPages,
+            hasPrevPage: page > 1
+        }
+    });
+});
+
+// @desc    Export students as CSV
+// @route   GET /api/users/students/export
+// @access  Private/Teacher
+const exportStudentsCsv = asyncHandler(async (req, res) => {
+    const query = buildStudentListQuery(req.query.search);
+    const students = await User.find(query)
+        .select('title firstName lastName email phoneNumber role createdAt')
+        .sort({ createdAt: -1, _id: -1 })
+        .lean();
+
+    const headers = ['ลำดับ', 'รหัสนักเรียน', 'คำนำหน้า', 'ชื่อ', 'นามสกุล', 'อีเมล', 'เบอร์โทร', 'สถานะ'];
+    const lines = [
+        headers.map(escapeCsvValue).join(','),
+        ...students.map((student, index) => [
+            index + 1,
+            getStudentCode(student.email),
+            student.title,
+            student.firstName,
+            student.lastName,
+            student.email,
+            student.phoneNumber,
+            student.role
+        ].map(escapeCsvValue).join(','))
+    ];
+
+    const csv = `\uFEFF${lines.join('\n')}`;
+    const date = new Date().toISOString().slice(0, 10);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="students-${date}.csv"`);
+    res.send(csv);
 });
 
 // @desc    Get student's exam history
@@ -268,6 +356,7 @@ module.exports = {
     registerUser,
     authUser,
     getStudents,
+    exportStudentsCsv,
     getStudentHistory,
     updateUser,
     resetPassword,

@@ -22,11 +22,79 @@ import {
     CheckCircle,
     Check,
     Archive,
-    RotateCcw
+    RotateCcw,
+    Upload,
+    FileSpreadsheet,
+    AlertTriangle
 } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 import { QRCodeSVG } from 'qrcode.react';
 import AttendanceManager from './AttendanceManager';
+
+const IMPORT_STATUS_CONFIG = {
+    ready: { label: 'พร้อมเพิ่ม', className: 'bg-green-50 text-green-700 border-green-200' },
+    already_exists: { label: 'มีอยู่แล้ว', className: 'bg-gray-50 text-gray-600 border-gray-200' },
+    not_found: { label: 'ไม่พบผู้เรียน', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+    duplicate: { label: 'ข้อมูลซ้ำ', className: 'bg-orange-50 text-orange-700 border-orange-200' },
+    conflict: { label: 'ข้อมูลขัดแย้ง', className: 'bg-red-50 text-red-700 border-red-200' },
+    invalid: { label: 'ข้อมูลไม่ครบ', className: 'bg-red-50 text-red-700 border-red-200' }
+};
+
+const parseCsvText = (text) => {
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+        const nextChar = text[i + 1];
+
+        if (char === '"' && inQuotes && nextChar === '"') {
+            cell += '"';
+            i += 1;
+        } else if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            row.push(cell);
+            cell = '';
+        } else if ((char === '\n' || char === '\r') && !inQuotes) {
+            if (char === '\r' && nextChar === '\n') i += 1;
+            row.push(cell);
+            rows.push(row);
+            row = [];
+            cell = '';
+        } else {
+            cell += char;
+        }
+    }
+
+    if (cell || row.length > 0) {
+        row.push(cell);
+        rows.push(row);
+    }
+
+    return rows.filter((csvRow) => csvRow.some((value) => String(value).trim()));
+};
+
+const createImportTable = (rawRows) => {
+    if (!rawRows.length) return { columns: [], rows: [] };
+
+    const headerRow = rawRows[0];
+    const columns = headerRow.map((header, index) => ({
+        index,
+        label: String(header || '').trim() || `คอลัมน์ ${index + 1}`
+    }));
+
+    const rows = rawRows.slice(1)
+        .map((values, index) => ({
+            rowNumber: index + 2,
+            values: columns.map((column) => String(values[column.index] ?? '').trim())
+        }))
+        .filter((row) => row.values.some(Boolean));
+
+    return { columns, rows };
+};
 
 const ExamList = () => {
     const navigate = useNavigate();
@@ -52,6 +120,16 @@ const ExamList = () => {
     const [manualSearchQuery, setManualSearchQuery] = useState('');
     const [addingStudent, setAddingStudent] = useState(false);
     const [showQRCodeModal, setShowQRCodeModal] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importFileName, setImportFileName] = useState('');
+    const [importColumns, setImportColumns] = useState([]);
+    const [importRows, setImportRows] = useState([]);
+    const [studentCodeColumn, setStudentCodeColumn] = useState('');
+    const [emailColumn, setEmailColumn] = useState('');
+    const [importMatchMode, setImportMatchMode] = useState('studentCode');
+    const [importPreview, setImportPreview] = useState(null);
+    const [importError, setImportError] = useState('');
+    const [importLoading, setImportLoading] = useState(false);
     
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -95,14 +173,7 @@ const ExamList = () => {
         setActiveTab('exams');
     }, [categoryId]);
 
-    // Fetch students when categoryId or activeTab is students or attendance
-    useEffect(() => {
-        if (categoryId && (activeTab === 'students' || activeTab === 'attendance')) {
-            fetchCategoryStudents();
-        }
-    }, [categoryId, activeTab]);
-
-    const fetchCategoryStudents = async () => {
+    const fetchCategoryStudents = useCallback(async () => {
         if (!categoryId) return;
         setStudentsLoading(true);
         try {
@@ -118,7 +189,14 @@ const ExamList = () => {
         } finally {
             setStudentsLoading(false);
         }
-    };
+    }, [categoryId]);
+
+    // Fetch students when categoryId or activeTab is students or attendance
+    useEffect(() => {
+        if (categoryId && (activeTab === 'students' || activeTab === 'attendance')) {
+            fetchCategoryStudents();
+        }
+    }, [categoryId, activeTab, fetchCategoryStudents]);
 
     const handleAddStudentManual = async (e) => {
         e.preventDefault();
@@ -168,6 +246,154 @@ const ExamList = () => {
             setCategoryStudents(prev => prev.filter(s => s._id !== studentId));
         } catch (err) {
             setError(err.response?.data?.message || 'ไม่สามารถลบนักเรียนได้');
+        }
+    };
+
+    const resetImportState = () => {
+        setImportFileName('');
+        setImportColumns([]);
+        setImportRows([]);
+        setStudentCodeColumn('');
+        setEmailColumn('');
+        setImportMatchMode('studentCode');
+        setImportPreview(null);
+        setImportError('');
+        setImportLoading(false);
+    };
+
+    const closeImportModal = () => {
+        setShowImportModal(false);
+        resetImportState();
+    };
+
+    const handleImportFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+
+        setImportLoading(true);
+        setImportError('');
+        setImportPreview(null);
+
+        try {
+            const extension = file.name.split('.').pop()?.toLowerCase();
+            let rawRows = [];
+
+            if (extension === 'csv') {
+                rawRows = parseCsvText(await file.text());
+            } else if (extension === 'xlsx' || extension === 'xls') {
+                const XLSX = await import('xlsx');
+                const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+                    header: 1,
+                    defval: ''
+                });
+            } else {
+                throw new Error('รองรับเฉพาะไฟล์ .csv, .xls หรือ .xlsx');
+            }
+
+            const parsed = createImportTable(rawRows);
+            if (!parsed.columns.length || !parsed.rows.length) {
+                throw new Error('ไฟล์ไม่มีข้อมูลสำหรับนำเข้า');
+            }
+
+            setImportFileName(file.name);
+            setImportColumns(parsed.columns);
+            setImportRows(parsed.rows);
+
+            const codeColumn = parsed.columns.find((column) => /รหัส|code|student/i.test(column.label));
+            const mailColumn = parsed.columns.find((column) => /email|e-mail|อีเมล/i.test(column.label));
+            setStudentCodeColumn(codeColumn ? String(codeColumn.index) : '');
+            setEmailColumn(mailColumn ? String(mailColumn.index) : '');
+            setImportMatchMode(codeColumn ? 'studentCode' : mailColumn ? 'email' : 'studentCode');
+        } catch (err) {
+            setImportError(err.message || 'ไม่สามารถอ่านไฟล์ได้');
+            setImportFileName('');
+            setImportColumns([]);
+            setImportRows([]);
+        } finally {
+            setImportLoading(false);
+        }
+    };
+
+    const buildImportPayloadRows = () => {
+        const codeIndex = studentCodeColumn === '' ? null : Number(studentCodeColumn);
+        const emailIndex = emailColumn === '' ? null : Number(emailColumn);
+
+        return importRows.map((row) => ({
+            rowNumber: row.rowNumber,
+            studentCode: codeIndex === null ? '' : row.values[codeIndex],
+            email: emailIndex === null ? '' : row.values[emailIndex]
+        }));
+    };
+
+    const validateImportSelection = () => {
+        if (!importRows.length) return 'กรุณาอัปโหลดไฟล์ก่อน';
+        if (importMatchMode === 'studentCode' && studentCodeColumn === '') return 'กรุณาเลือกคอลัมน์รหัสนักเรียน';
+        if (importMatchMode === 'email' && emailColumn === '') return 'กรุณาเลือกคอลัมน์ Email';
+        if (importMatchMode === 'both' && (studentCodeColumn === '' || emailColumn === '')) {
+            return 'กรุณาเลือกทั้งคอลัมน์รหัสนักเรียนและ Email';
+        }
+        return '';
+    };
+
+    const handlePreviewImport = async () => {
+        const selectionError = validateImportSelection();
+        if (selectionError) {
+            setImportError(selectionError);
+            return;
+        }
+
+        setImportLoading(true);
+        setImportError('');
+        setImportPreview(null);
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: { Authorization: `Bearer ${user.token}` },
+            };
+            const { data } = await api.post(
+                `/exams/categories/${categoryId}/students/import/preview`,
+                { rows: buildImportPayloadRows(), matchMode: importMatchMode },
+                config
+            );
+            setImportPreview(data);
+        } catch (err) {
+            setImportError(err.response?.data?.message || 'ไม่สามารถตรวจสอบข้อมูลได้');
+        } finally {
+            setImportLoading(false);
+        }
+    };
+
+    const handleConfirmImport = async () => {
+        if (!importPreview?.summary?.ready) return;
+
+        setImportLoading(true);
+        setImportError('');
+
+        try {
+            const user = JSON.parse(localStorage.getItem('user'));
+            const config = {
+                headers: { Authorization: `Bearer ${user.token}` },
+            };
+            const { data } = await api.post(
+                `/exams/categories/${categoryId}/students/import/confirm`,
+                { rows: buildImportPayloadRows(), matchMode: importMatchMode },
+                config
+            );
+
+            setCategoryStudents(prev => {
+                const existingIds = new Set(prev.map((student) => student._id));
+                const importedStudents = data.students.filter((student) => !existingIds.has(student._id));
+                return [...prev, ...importedStudents];
+            });
+            closeImportModal();
+        } catch (err) {
+            setImportError(err.response?.data?.message || 'ไม่สามารถยืนยันการนำเข้าได้');
+        } finally {
+            setImportLoading(false);
         }
     };
 
@@ -809,7 +1035,16 @@ const ExamList = () => {
 
                     {/* Manual Add Student Form */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
-                        <h3 className="text-base font-bold text-gray-900">เพิ่มนักเรียนเข้าชั้นเรียนด้วยตัวเอง</h3>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <h3 className="text-base font-bold text-gray-900">เพิ่มนักเรียนเข้าชั้นเรียนด้วยตัวเอง</h3>
+                            <button
+                                type="button"
+                                onClick={() => setShowImportModal(true)}
+                                className="px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition flex items-center gap-2 w-fit"
+                            >
+                                <Upload size={16} /> Import ผู้เรียน
+                            </button>
+                        </div>
                         <form onSubmit={handleAddStudentManual} className="flex gap-3 max-w-lg">
                             <input
                                 type="text"
@@ -872,6 +1107,265 @@ const ExamList = () => {
                             </div>
                         )}
                     </div>
+
+                    {/* Import Students Modal */}
+                    {showImportModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[90vh] shadow-xl border border-gray-100 flex flex-col overflow-hidden">
+                                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-950">Import ผู้เรียนเข้าชั้นเรียน</h3>
+                                        <p className="text-xs text-gray-500 mt-1">อัปโหลดไฟล์ เลือกคอลัมน์ ตรวจสอบ แล้วจึงยืนยันเพิ่มผู้เรียน</p>
+                                    </div>
+                                    <button
+                                        onClick={closeImportModal}
+                                        className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg transition"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
+
+                                <div className="p-6 overflow-y-auto space-y-5">
+                                    {importError && (
+                                        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2 text-sm text-red-700">
+                                            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                                            <span>{importError}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-5">
+                                        <div className="space-y-4">
+                                            <label className="block border border-dashed border-gray-300 rounded-xl p-5 hover:border-indigo-300 hover:bg-indigo-50/30 transition cursor-pointer">
+                                                <input
+                                                    type="file"
+                                                    accept=".csv,.xls,.xlsx"
+                                                    onChange={handleImportFileChange}
+                                                    className="hidden"
+                                                />
+                                                <div className="flex items-start gap-3">
+                                                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                                                        <FileSpreadsheet size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-gray-900">
+                                                            {importFileName || 'เลือกไฟล์ CSV, XLS หรือ XLSX'}
+                                                        </p>
+                                                        <p className="text-xs text-gray-500 mt-1">
+                                                            แถวแรกของไฟล์ต้องเป็นชื่อคอลัมน์ เช่น รหัสนักเรียน หรือ Email
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </label>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-gray-600 mb-1">คอลัมน์รหัสนักเรียน</label>
+                                                    <select
+                                                        value={studentCodeColumn}
+                                                        onChange={(e) => {
+                                                            setStudentCodeColumn(e.target.value);
+                                                            setImportPreview(null);
+                                                        }}
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                                        disabled={!importColumns.length}
+                                                    >
+                                                        <option value="">ไม่ใช้</option>
+                                                        {importColumns.map((column) => (
+                                                            <option key={column.index} value={column.index}>{column.label}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-gray-600 mb-1">คอลัมน์ Email</label>
+                                                    <select
+                                                        value={emailColumn}
+                                                        onChange={(e) => {
+                                                            setEmailColumn(e.target.value);
+                                                            setImportPreview(null);
+                                                        }}
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                                        disabled={!importColumns.length}
+                                                    >
+                                                        <option value="">ไม่ใช้</option>
+                                                        {importColumns.map((column) => (
+                                                            <option key={column.index} value={column.index}>{column.label}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <p className="text-xs font-semibold text-gray-600 mb-2">ใช้ข้อมูลใดในการค้นหา</p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                    {[
+                                                        { value: 'studentCode', label: 'รหัสนักเรียน' },
+                                                        { value: 'email', label: 'Email' },
+                                                        { value: 'both', label: 'ทั้งสองอย่าง' }
+                                                    ].map((option) => (
+                                                        <label
+                                                            key={option.value}
+                                                            className={`px-3 py-2 rounded-lg border text-sm cursor-pointer transition
+                                                                ${importMatchMode === option.value
+                                                                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                                                                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                                                }`}
+                                                        >
+                                                            <input
+                                                                type="radio"
+                                                                value={option.value}
+                                                                checked={importMatchMode === option.value}
+                                                                onChange={(e) => {
+                                                                    setImportMatchMode(e.target.value);
+                                                                    setImportPreview(null);
+                                                                }}
+                                                                className="sr-only"
+                                                            />
+                                                            {option.label}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 min-h-56">
+                                            <div className="flex items-center justify-between gap-3 mb-3">
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-gray-900">ตัวอย่างข้อมูลจากไฟล์</h4>
+                                                    <p className="text-xs text-gray-500">
+                                                        {importRows.length ? `${importRows.length} รายการ` : 'ยังไม่มีข้อมูล'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={handlePreviewImport}
+                                                    disabled={importLoading || !importRows.length}
+                                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition disabled:opacity-50 flex items-center gap-2"
+                                                >
+                                                    <Check size={16} /> {importLoading ? 'กำลังตรวจสอบ...' : 'ตรวจสอบข้อมูล'}
+                                                </button>
+                                            </div>
+
+                                            {importRows.length > 0 ? (
+                                                <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="bg-gray-50 text-gray-500">
+                                                            <tr>
+                                                                <th className="px-3 py-2 font-semibold">แถว</th>
+                                                                {importColumns.slice(0, 4).map((column) => (
+                                                                    <th key={column.index} className="px-3 py-2 font-semibold">{column.label}</th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {importRows.slice(0, 5).map((row) => (
+                                                                <tr key={row.rowNumber}>
+                                                                    <td className="px-3 py-2 text-gray-400">{row.rowNumber}</td>
+                                                                    {importColumns.slice(0, 4).map((column) => (
+                                                                        <td key={column.index} className="px-3 py-2 text-gray-700 whitespace-nowrap">
+                                                                            {row.values[column.index] || '-'}
+                                                                        </td>
+                                                                    ))}
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <div className="h-36 flex items-center justify-center text-sm text-gray-400">
+                                                    เลือกไฟล์เพื่อตรวจสอบข้อมูล
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {importPreview && (
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                                                {[
+                                                    ['ready', 'พร้อมเพิ่ม'],
+                                                    ['already_exists', 'มีอยู่แล้ว'],
+                                                    ['not_found', 'ไม่พบ'],
+                                                    ['duplicate', 'ซ้ำ'],
+                                                    ['conflict', 'ขัดแย้ง'],
+                                                    ['invalid', 'ไม่ครบ']
+                                                ].map(([key, label]) => (
+                                                    <div key={key} className="border border-gray-100 rounded-lg p-3 bg-white">
+                                                        <p className="text-xs text-gray-500">{label}</p>
+                                                        <p className="text-xl font-bold text-gray-900">{importPreview.summary[key] || 0}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="max-h-72 overflow-auto">
+                                                    <table className="w-full text-sm text-left">
+                                                        <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
+                                                            <tr>
+                                                                <th className="px-4 py-3 font-semibold">แถว</th>
+                                                                <th className="px-4 py-3 font-semibold">รหัสนักเรียน</th>
+                                                                <th className="px-4 py-3 font-semibold">Email</th>
+                                                                <th className="px-4 py-3 font-semibold">ผู้เรียนที่พบ</th>
+                                                                <th className="px-4 py-3 font-semibold">สถานะ</th>
+                                                                <th className="px-4 py-3 font-semibold">หมายเหตุ</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100 bg-white">
+                                                            {importPreview.rows.map((row) => {
+                                                                const status = IMPORT_STATUS_CONFIG[row.status] || IMPORT_STATUS_CONFIG.invalid;
+                                                                return (
+                                                                    <tr key={`${row.rowNumber}-${row.studentCode}-${row.email}`}>
+                                                                        <td className="px-4 py-3 text-gray-500">{row.rowNumber}</td>
+                                                                        <td className="px-4 py-3 font-mono text-xs">{row.studentCode || '-'}</td>
+                                                                        <td className="px-4 py-3 font-mono text-xs">{row.email || '-'}</td>
+                                                                        <td className="px-4 py-3">
+                                                                            {row.student
+                                                                                ? `${row.student.title || ''}${row.student.firstName} ${row.student.lastName}`
+                                                                                : '-'
+                                                                            }
+                                                                        </td>
+                                                                        <td className="px-4 py-3">
+                                                                            <span className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${status.className}`}>
+                                                                                {status.label}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="px-4 py-3 text-gray-500">{row.message || '-'}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <p className="text-xs text-gray-500">
+                                        ระบบจะเพิ่มเฉพาะรายการที่สถานะเป็น "พร้อมเพิ่ม" เท่านั้น
+                                    </p>
+                                    <div className="flex justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={closeImportModal}
+                                            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition"
+                                        >
+                                            ยกเลิก
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleConfirmImport}
+                                            disabled={importLoading || !importPreview?.summary?.ready}
+                                            className="px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition disabled:opacity-50 flex items-center gap-2"
+                                        >
+                                            <CheckCircle size={16} />
+                                            {importLoading ? 'กำลังบันทึก...' : `ยืนยันเพิ่ม ${importPreview?.summary?.ready || 0} คน`}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* QR Code Modal */}
                     {showQRCodeModal && (

@@ -13,6 +13,8 @@ const {
     getMyJoinedCategories,
     getCategoryStudents,
     addStudentToCategoryManual,
+    previewStudentImport,
+    confirmStudentImport,
     removeStudentFromCategory,
     updateCategory,
     archiveCategory,
@@ -53,6 +55,9 @@ router.route('/categories/:id/restore')
 router.route('/categories/:id/students')
     .get(protect, teacher, getCategoryStudents)
     .post(protect, teacher, mutationLimiter, addStudentToCategoryManual);
+
+router.post('/categories/:id/students/import/preview', protect, teacher, mutationLimiter, previewStudentImport);
+router.post('/categories/:id/students/import/confirm', protect, teacher, mutationLimiter, confirmStudentImport);
 
 router.route('/categories/:id/students/:studentId')
     .delete(protect, teacher, mutationLimiter, removeStudentFromCategory);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../config/api';
 import { useNavigate } from 'react-router-dom';
-import { Search, Pencil, KeyRound, Trash2, X, Save } from 'lucide-react';
+import { Search, Pencil, KeyRound, Trash2, X, Save, Download } from 'lucide-react';
 import { useDialog } from '../../components/DialogProvider';
 import { useToast } from '../../components/ToastProvider';
 
@@ -12,14 +12,23 @@ const StudentList = () => {
     const { showConfirm } = useDialog();
     const toast = useToast();
     const [students, setStudents] = useState([]);
-    const [filteredStudents, setFilteredStudents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+    const [exportingCsv, setExportingCsv] = useState(false);
     
     // Pagination states
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
+    const [pagination, setPagination] = useState({
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+    });
 
     // Edit modal state
     const [editModal, setEditModal] = useState(null); // { student, saving }
@@ -37,10 +46,22 @@ const StudentList = () => {
                 headers: {
                     Authorization: `Bearer ${storedUser.token}`,
                 },
+                params: {
+                    page: currentPage,
+                    limit: itemsPerPage,
+                    search: debouncedSearchTerm,
+                },
             };
             const { data } = await api.get('/users/students', config);
-            setStudents(data);
-            setFilteredStudents(data);
+            setStudents(data.students || []);
+            setPagination(data.pagination || {
+                page: currentPage,
+                limit: itemsPerPage,
+                total: 0,
+                totalPages: 1,
+                hasNextPage: false,
+                hasPrevPage: false,
+            });
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to fetch students');
             if (err.response?.status === 401) {
@@ -50,7 +71,7 @@ const StudentList = () => {
         } finally {
             setLoading(false);
         }
-    }, [navigate]);
+    }, [navigate, currentPage, itemsPerPage, debouncedSearchTerm]);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -62,18 +83,13 @@ const StudentList = () => {
     }, [navigate, fetchStudents]);
 
     useEffect(() => {
-        const filtered = students.filter((student) => {
-            const fullName = `${student.title} ${student.firstName} ${student.lastName}`.toLowerCase();
-            const term = searchTerm.toLowerCase();
-            return (
-                fullName.includes(term) ||
-                student.email.toLowerCase().includes(term) ||
-                student.phoneNumber.includes(term)
-            );
-        });
-        setFilteredStudents(filtered);
-        setCurrentPage(1);
-    }, [searchTerm, students]);
+        const timeoutId = window.setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm.trim());
+            setCurrentPage(1);
+        }, 300);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [searchTerm]);
 
     // Edit handlers
     const openEditModal = (student) => {
@@ -186,17 +202,47 @@ const StudentList = () => {
                 headers: { Authorization: `Bearer ${storedUser.token}` },
             });
 
-            setStudents(prev => prev.filter(s => s._id !== student._id));
+            if (students.length === 1 && currentPage > 1) {
+                setCurrentPage(prev => prev - 1);
+            } else {
+                await fetchStudents();
+            }
             toast.success('ลบผู้ใช้เรียบร้อยแล้ว');
         } catch (err) {
             toast.error(err.response?.data?.message || 'ไม่สามารถลบผู้ใช้ได้');
         }
     };
 
+    const handleDownloadCsv = async () => {
+        setExportingCsv(true);
+        try {
+            const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const { data } = await api.get('/users/students/export', {
+                headers: { Authorization: `Bearer ${storedUser.token}` },
+                params: { search: debouncedSearchTerm },
+                responseType: 'blob',
+            });
+
+            const blobUrl = window.URL.createObjectURL(new Blob([data], { type: 'text/csv;charset=utf-8;' }));
+            const date = new Date().toISOString().slice(0, 10);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = `students-${date}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'ไม่สามารถดาวน์โหลด CSV ได้');
+        } finally {
+            setExportingCsv(false);
+        }
+    };
+
     // Pagination logic
-    const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
+    const totalPages = pagination.totalPages || 1;
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const currentStudents = filteredStudents.slice(startIndex, startIndex + itemsPerPage);
+    const currentStudents = students;
 
     if (loading) {
         return (
@@ -219,19 +265,31 @@ const StudentList = () => {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900">นักเรียนทั้งหมด</h1>
-                    <p className="text-gray-500 mt-1">รายชื่อนักเรียนที่ลงทะเบียนในระบบ ({students.length} คน)</p>
+                    <p className="text-gray-500 mt-1">รายชื่อนักเรียนที่ลงทะเบียนในระบบ ({pagination.total} คน)</p>
                 </div>
 
-                {/* Search */}
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input
-                        type="text"
-                        placeholder="ค้นหานักเรียน..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none w-full sm:w-72"
-                    />
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <button
+                        type="button"
+                        onClick={handleDownloadCsv}
+                        disabled={exportingCsv}
+                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                    >
+                        <Download size={16} />
+                        {exportingCsv ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด CSV'}
+                    </button>
+
+                    {/* Search */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                        <input
+                            type="text"
+                            placeholder="ค้นหานักเรียน..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none w-full sm:w-72"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -332,7 +390,7 @@ const StudentList = () => {
                 </div>
                 
                 {/* Pagination Controls */}
-                {filteredStudents.length > 0 && (
+                {pagination.total > 0 && (
                     <div className="bg-white px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                             <span>แสดง</span>
@@ -349,13 +407,13 @@ const StudentList = () => {
                                 <option value={50}>50</option>
                                 <option value={100}>100</option>
                             </select>
-                            <span>รายการ จากทั้งหมด {filteredStudents.length} รายการ</span>
+                            <span>รายการ จากทั้งหมด {pagination.total} รายการ</span>
                         </div>
                         
                         <div className="flex items-center gap-2">
                             <button
                                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage === 1}
+                                disabled={!pagination.hasPrevPage}
                                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 hover:bg-gray-50"
                             >
                                 ก่อนหน้า
@@ -365,7 +423,7 @@ const StudentList = () => {
                             </span>
                             <button
                                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage === totalPages}
+                                disabled={!pagination.hasNextPage}
                                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 hover:bg-gray-50"
                             >
                                 ถัดไป
