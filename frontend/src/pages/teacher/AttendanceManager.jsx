@@ -774,11 +774,17 @@ export default function AttendanceManager({ categoryId, categoryStudents = [] })
                             {isCheckingActive ? (
                                 <>
                                     <div className="bg-white p-6 rounded-3xl shadow-md border border-gray-100">
-                                        <QRCodeSVG
-                                            value={`${window.location.origin}/student/join?code=${qrToken}`}
-                                            size={220}
-                                            level="Q"
-                                        />
+                                        {qrToken ? (
+                                            <QRCodeSVG
+                                                value={`${window.location.origin}/student/join?code=${qrToken}`}
+                                                size={220}
+                                                level="Q"
+                                            />
+                                        ) : (
+                                            <div className="w-[220px] h-[220px] flex items-center justify-center text-center text-xs font-semibold text-gray-400">
+                                                กำลังสร้าง QR Code...
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="text-center space-y-1 font-sans">
                                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider font-sans">รหัสเข้าเรียนหมุนเวียน</p>

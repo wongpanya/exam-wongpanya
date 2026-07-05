@@ -133,8 +133,83 @@ const JoinExam = () => {
         }
     }, [navigate]);
 
+    const joinWithShortCode = useCallback(async (shortCode) => {
+        const cleaned = shortCode.trim().replace(/\s+/g, '');
+        setStatus('joining');
+        setMessage('กำลังดำเนินการ...');
+
+        try {
+            const { data } = await api.post(
+                '/exam-sessions/join-by-code',
+                { shortCode: cleaned }
+            );
+
+            setStatus('success');
+            setMessage('เข้าห้องสอบสำเร็จ!');
+            setSuccessSubtext('กำลังเข้าสู่ห้องสอบ...');
+            setTimeout(() => {
+                navigate(`/student/exam/${data.examId}`);
+            }, 800);
+        } catch (err) {
+            try {
+                const user = JSON.parse(localStorage.getItem('user'));
+                const config = {
+                    headers: { Authorization: `Bearer ${user.token}` },
+                };
+                const { data } = await api.post(
+                    '/attendance/join',
+                    { code: cleaned },
+                    config
+                );
+
+                setStatus('success');
+                setMessage(data.message || 'เช็คชื่อเข้าเรียนสำเร็จ!');
+                setSuccessSubtext('กำลังนำคุณไปยังหน้าแรก...');
+                setTimeout(() => {
+                    navigate('/student');
+                }, 1500);
+            } catch (attErr) {
+                try {
+                    const user = JSON.parse(localStorage.getItem('user'));
+                    const config = {
+                        headers: { Authorization: `Bearer ${user.token}` },
+                    };
+                    const { data } = await api.post(
+                        '/exams/categories/join',
+                        { code: cleaned },
+                        config
+                    );
+
+                    setStatus('success');
+                    setMessage(data.message || 'เข้าร่วมรายวิชาสำเร็จ!');
+                    setSuccessSubtext('กำลังนำคุณไปยังหน้ารายวิชา...');
+                    setTimeout(() => {
+                        navigate('/student');
+                    }, 1500);
+                } catch (catErr) {
+                    setStatus('error');
+                    setMessage(attErr.response?.data?.message || catErr.response?.data?.message || 'รหัสไม่ถูกต้อง หรือหมดอายุแล้ว');
+                    processingRef.current = false;
+
+                    setTimeout(() => {
+                        processingRef.current = false;
+                        setStatus('idle');
+                        setMessage('');
+                    }, 3000);
+                }
+            }
+        }
+    }, [navigate]);
+
     const joinWithScannedCode = useCallback(async (codeToJoin) => {
         const cleaned = codeToJoin.trim().replace(/\s+/g, '');
+
+        if (!cleaned) {
+            setStatus('error');
+            setMessage('QR Code ยังไม่พร้อม กรุณาสแกนใหม่อีกครั้ง');
+            processingRef.current = false;
+            return;
+        }
 
         if (cleaned.includes('.')) {
             const parts = cleaned.split('.');
@@ -142,8 +217,13 @@ const JoinExam = () => {
             return;
         }
 
+        if (/^\d{6}$/.test(cleaned)) {
+            await joinWithShortCode(cleaned);
+            return;
+        }
+
         await joinCategoryWithCode(cleaned);
-    }, [joinCategoryWithCode, joinWithToken]);
+    }, [joinCategoryWithCode, joinWithShortCode, joinWithToken]);
 
     useEffect(() => {
         if (codeParam && !processingRef.current) {
