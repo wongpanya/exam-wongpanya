@@ -133,16 +133,23 @@ const JoinExam = () => {
         }
     }, [navigate]);
 
+    const joinWithScannedCode = useCallback(async (codeToJoin) => {
+        const cleaned = codeToJoin.trim().replace(/\s+/g, '');
+
+        if (cleaned.includes('.')) {
+            const parts = cleaned.split('.');
+            await joinWithToken({ examId: parts[0] }, cleaned);
+            return;
+        }
+
+        await joinCategoryWithCode(cleaned);
+    }, [joinCategoryWithCode, joinWithToken]);
+
     useEffect(() => {
         if (codeParam && !processingRef.current) {
-            if (codeParam.includes('.')) {
-                const parts = codeParam.split('.');
-                joinWithToken({ examId: parts[0] }, codeParam);
-            } else {
-                joinCategoryWithCode(codeParam);
-            }
+            joinWithScannedCode(codeParam);
         }
-    }, [codeParam, joinCategoryWithCode, joinWithToken]);
+    }, [codeParam, joinWithScannedCode]);
 
     const startScanner = async () => {
         setStatus('scanning');
@@ -174,26 +181,34 @@ const JoinExam = () => {
                     processingRef.current = true;
 
                     try {
-                        // Check if it is a Category join URL or direct PIN code
-                        const trimmedText = decodedText.trim().replace(/\s+/g, '');
-                        if (decodedText.includes('join?code=') || decodedText.includes('join-category?code=') || /^[a-z0-9]{6}$/i.test(trimmedText)) {
-                            let codeToJoin = trimmedText;
-                            if (decodedText.includes('code=')) {
+                        const trimmedText = decodedText.trim();
+                        let codeToJoin = trimmedText.replace(/\s+/g, '');
+
+                        if (decodedText.includes('code=')) {
+                            try {
                                 const url = new URL(decodedText);
-                                codeToJoin = url.searchParams.get('code') || trimmedText;
+                                codeToJoin = url.searchParams.get('code') || codeToJoin;
+                            } catch {
+                                const match = decodedText.match(/[?&]code=([^&]+)/);
+                                codeToJoin = match ? decodeURIComponent(match[1]) : codeToJoin;
                             }
-                            
+                        }
+
+                        codeToJoin = codeToJoin.trim().replace(/\s+/g, '');
+
+                        // Check if it is a join/check-in URL or direct PIN code
+                        if (decodedText.includes('join?code=') || decodedText.includes('join-category?code=') || /^[a-z0-9]{6}$/i.test(codeToJoin)) {
                             // Stop and clear scanner before joining
                             try { await html5QrCode.stop(); } catch (e) { /* ignore */ }
                             try { html5QrCode.clear(); } catch (e) { /* ignore */ }
                             html5QrCodeRef.current = null;
                             setScanning(false);
 
-                            await joinCategoryWithCode(codeToJoin);
+                            await joinWithScannedCode(codeToJoin);
                             return;
                         }
 
-                        const tokenData = parseQRData(decodedText);
+                        const tokenData = parseQRData(codeToJoin);
 
                         if (!tokenData.examId) {
                             setStatus('error');
@@ -209,7 +224,7 @@ const JoinExam = () => {
                         setScanning(false);
 
                         // Send raw string to backend (compact format)
-                        await joinWithToken(tokenData, decodedText);
+                        await joinWithToken(tokenData, codeToJoin);
                     } catch (err) {
                         if (err.response) {
                             setStatus('error');
