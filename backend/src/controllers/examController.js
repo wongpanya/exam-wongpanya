@@ -229,8 +229,11 @@ const createExam = asyncHandler(async (req, res) => {
     }
 
     // Auto-generate examId securely to prevent race conditions
-    const lastExam = await Exam.findOne({}, { examId: 1 }).sort({ createdAt: -1 });
-    const lastNum = lastExam ? parseInt(lastExam.examId.replace('EXAM', ''), 10) : 0;
+    const lastExam = await Exam.findOne(
+        { examId: { $regex: /^EXAM\d+$/ } },
+        { examId: 1 }
+    ).sort({ createdAt: -1 }).lean();
+    const lastNum = Number.parseInt(String(lastExam?.examId || '').replace(/^EXAM/, ''), 10) || 0;
     const examId = `EXAM${String(lastNum + 1).padStart(3, '0')}`;
 
     // Auto-generate questionIds if not provided

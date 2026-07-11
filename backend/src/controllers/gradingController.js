@@ -155,9 +155,88 @@ const getGrading = asyncHandler(async (req, res) => {
         },
         exam: { _id: exam._id, title: exam.title },
         question: auditedQuestion,
-        studentAnswer: requestSnapshot?.studentAnswer ?? answer.selectedAnswer,
     });
 });
+
+// GET /api/grading/:attemptId/all
+const getAttemptGrading = asyncHandler(async (req, res) => {
+    const { attemptId } = req.params;
+    const attempt = await ExamAttempt.findById(attemptId).populate('student', 'firstName lastName email');
+    if (!attempt) {
+        res.status(404);
+        throw new Error('Attempt not found');
+    }
+
+    const exam = await Exam.findById(attempt.exam);
+    if (!exam) {
+        res.status(404);
+        throw new Error('Exam not found');
+    }
+
+    if (!canManageExam(req.user, exam)) {
+        res.status(403);
+        throw new Error('Not authorized to access this attempt');
+    }
+
+    const gradingResults = await GradingResult.find({ attempt: attempt._id })
+        .select('+requestSnapshot')
+        .populate('selectedRun', 'provider model status attemptNumber promptVersion inputTokens outputTokens estimatedCost latencyMs errorCode errorMessage createdAt finishedAt');
+
+    const resultsMap = new Map(gradingResults.map(r => [r.questionId, r]));
+
+    const auditedQuestions = exam.questions.map(question => {
+        const result = resultsMap.get(question.questionId);
+        const resultObject = result ? serializeResult(result) : null;
+        const requestSnapshot = resultObject?.requestSnapshot;
+        if (resultObject && requestSnapshot) {
+            delete resultObject.requestSnapshot;
+        }
+
+        const auditedQuestion = requestSnapshot ? {
+            questionId: question.questionId,
+            type: 'text',
+            prompt: requestSnapshot.question,
+            points: requestSnapshot.maxScore,
+            gradingMode: 'ai',
+            aiGrading: {
+                groundTruths: requestSnapshot.groundTruths,
+                rubricCriteria: requestSnapshot.rubric.map(item => ({
+                    rubricId: item.id,
+                    title: item.title,
+                    description: item.description,
+                    maxScore: item.maxScore,
+                })),
+                keyConcepts: requestSnapshot.keyConcepts,
+                language: requestSnapshot.language,
+                providerPreference: result.providerPreference,
+                modelPreference: result.modelPreference,
+            },
+        } : question;
+
+        return {
+            ...auditedQuestion,
+            gradingResult: resultObject,
+            studentAnswer: requestSnapshot?.studentAnswer ?? attempt.answers.find(ans => ans.questionId === question.questionId)?.selectedAnswer ?? '',
+        };
+    });
+
+    res.json({
+        attempt: {
+            _id: attempt._id,
+            status: attempt.status,
+            gradingStatus: attempt.gradingStatus,
+            objectiveScore: attempt.objectiveScore,
+            aiScore: attempt.aiScore,
+            teacherScore: attempt.teacherScore,
+            finalScore: attempt.finalScore,
+            totalPoints: attempt.totalPoints,
+            student: attempt.student,
+        },
+        exam: { _id: exam._id, title: exam.title },
+        questions: auditedQuestions,
+    });
+});
+
 
 // PATCH /api/grading/:attemptId/questions/:questionId/review
 const review = asyncHandler(async (req, res) => {
@@ -301,6 +380,7 @@ module.exports = {
     grade,
     regrade,
     getGrading,
+    getAttemptGrading,
     review,
     getHistory,
     getProviders,

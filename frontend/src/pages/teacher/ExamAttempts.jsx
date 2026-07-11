@@ -165,14 +165,35 @@ const ExamAttempts = () => {
 
     const getGradingStatusBadge = (attempt) => {
         const status = attempt.gradingStatus;
+        const resultForStatus = (statuses) => (attempt.gradingResults || []).filter(result => statuses.includes(result.status));
+        const questionLabel = (result) => {
+            const index = examDetails?.questions?.findIndex(question => question.questionId === result.questionId) ?? -1;
+            return index >= 0 ? `ข้อ ${index + 1}` : result.questionId;
+        };
+        const questionList = (statuses) => resultForStatus(statuses).map(questionLabel).join(', ');
         if (status === 'needs-review') {
-            return <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><AlertTriangle size={12} /> รอตรวจซ้ำ</span>;
+            return (
+                <div>
+                    <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><AlertTriangle size={12} /> รอตรวจซ้ำ</span>
+                    <p className="mt-1 text-xs font-medium text-amber-700">{questionList(['needs-review']) || 'มีข้อที่ต้องตรวจ'}</p>
+                </div>
+            );
         }
         if (status === 'pending' || status === 'processing') {
-            return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><Sparkles size={12} /> AI กำลังตรวจ</span>;
+            return (
+                <div>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><Sparkles size={12} /> AI กำลังตรวจ</span>
+                    {questionList(['pending', 'processing']) && <p className="mt-1 text-xs text-blue-700">{questionList(['pending', 'processing'])}</p>}
+                </div>
+            );
         }
         if (status === 'failed') {
-            return <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><XCircle size={12} /> ตรวจไม่สำเร็จ</span>;
+            return (
+                <div>
+                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><XCircle size={12} /> ตรวจไม่สำเร็จ</span>
+                    <p className="mt-1 text-xs font-medium text-red-700">{questionList(['failed']) || 'มีข้อที่ต้องตรวจ'}</p>
+                </div>
+            );
         }
         if (status === 'completed') {
             return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><CheckCircle size={12} /> ตรวจแล้ว</span>;
@@ -183,6 +204,13 @@ const ExamAttempts = () => {
     const openGrading = (attempt, result) => {
         const query = sessionId ? `?sessionId=${sessionId}` : '';
         navigate(`/teacher/exams/${id}/attempts/${attempt._id}/grading/${result.questionId}${query}`);
+    };
+
+    const openGradingAll = (attempt) => {
+        const firstResult = attempt.gradingResults?.[0];
+        if (!firstResult) return;
+        const query = sessionId ? `?sessionId=${sessionId}&view=all` : '?view=all';
+        navigate(`/teacher/exams/${id}/attempts/${attempt._id}/grading/${firstResult.questionId}${query}`);
     };
 
     if (loading) return <div className="p-8 text-center text-gray-500">Loading attempts...</div>;
@@ -270,7 +298,6 @@ const ExamAttempts = () => {
                             <tr>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">นักเรียน</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">สถานะ</th>
-                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ทำไปแล้ว</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">คะแนน</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">AI Grading</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">เวลาที่ใช้</th>
@@ -281,30 +308,36 @@ const ExamAttempts = () => {
                         <tbody className="divide-y divide-gray-100">
                             {currentAttempts.length === 0 ? (
                                 <tr>
-                                    <td colSpan="8" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
+                                    <td colSpan="7" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
                                 </tr>
                             ) : (
-                                currentAttempts.map((attempt) => (
+                                currentAttempts.map((attempt) => {
+                                    const reviewResults = (attempt.gradingResults || []).filter(result => (
+                                        result.status === 'needs-review' || result.status === 'failed'
+                                    ));
+                                    const firstResult = reviewResults[0] || attempt.gradingResults?.[0];
+                                    const reviewLabels = reviewResults.map((result) => {
+                                        const index = examDetails?.questions?.findIndex(question => question.questionId === result.questionId) ?? -1;
+                                        return index >= 0 ? `ข้อ ${index + 1}` : result.questionId;
+                                    });
+                                    return (
                                     <tr key={attempt._id} className="hover:bg-gray-50 transition">
                                         <td className="px-6 py-4">
-                                            <div className="flex items-center gap-3">
+                                            <div 
+                                                onClick={() => firstResult && openGradingAll(attempt)}
+                                                className={`flex items-center gap-3 ${firstResult ? 'cursor-pointer' : ''}`}
+                                            >
                                                 <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold">
                                                     {attempt.student.firstName.charAt(0)}
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-medium text-gray-900">{attempt.student.firstName} {attempt.student.lastName}</p>
+                                                    <p className={`text-sm font-medium text-gray-900 ${firstResult ? 'hover:underline hover:text-indigo-600' : ''}`}>{attempt.student.firstName} {attempt.student.lastName}</p>
                                                     <p className="text-xs text-gray-500">{attempt.student.email}</p>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             {getStatusBadge(attempt.status)}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className="text-sm font-medium text-gray-900">
-                                                {attempt.answers ? attempt.answers.filter(ans => ans.selectedAnswer && ans.selectedAnswer.trim() !== '').length : 0}
-                                                <span className="text-gray-400 text-xs font-normal"> / {examDetails?.questions?.length || 0}</span>
-                                            </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             {attempt.score !== null ? (
@@ -323,28 +356,19 @@ const ExamAttempts = () => {
                                             {formatDateTime(attempt.submittedAt)}
                                         </td>
                                         <td className="px-6 py-4">
-                                            {attempt.gradingResults?.length > 0 ? (
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {attempt.gradingResults.map((result) => {
-                                                        const questionIndex = examDetails?.questions?.findIndex(q => q.questionId === result.questionId) ?? -1;
-                                                        return (
-                                                            <button
-                                                                key={result._id}
-                                                                type="button"
-                                                                onClick={() => openGrading(attempt, result)}
-                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
-                                                            >
-                                                                <Eye size={13} /> ข้อ {questionIndex + 1}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : (
-                                                <span className="text-gray-400">-</span>
-                                            )}
+                                            {firstResult ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openGrading(attempt, firstResult)}
+                                                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${reviewResults.length > 0 ? 'bg-amber-50 text-amber-800 hover:bg-amber-100' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}
+                                                >
+                                                    <Eye size={13} /> {reviewResults.length > 0 ? `ตรวจ ${reviewLabels.join(', ')}` : 'ดูผล AI'}
+                                                </button>
+                                            ) : <span className="text-gray-400">-</span>}
                                         </td>
                                     </tr>
-                                ))
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>

@@ -20,6 +20,7 @@ const {
     grade,
     regrade,
     getGrading,
+    getAttemptGrading,
     review,
     getHistory,
     getProviders,
@@ -43,6 +44,7 @@ router.delete('/provider-settings/:provider/key', gradingLimiter, removeProvider
 router.post('/grade', gradingLimiter, validate(gradeSchema), grade);
 
 const answerMiddlewares = [loadOwnedAnswer, loadOwnedGradingResult];
+router.get('/:attemptId/all', getAttemptGrading);
 router.get('/:attemptId/questions/:questionId', ...answerMiddlewares, getGrading);
 router.get('/:attemptId/questions/:questionId/history', ...answerMiddlewares, getHistory);
 router.post('/:attemptId/questions/:questionId/regrade', gradingLimiter, validate(regradeSchema), ...answerMiddlewares, regrade);
