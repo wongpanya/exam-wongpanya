@@ -65,9 +65,16 @@ const Register = () => {
             return;
         }
 
+        const studentCode = email.trim();
+
+        if (!studentCode || studentCode.includes('@') || /\s/.test(studentCode)) {
+            setError('กรุณากรอกเฉพาะรหัสนิสิต โดยไม่ต้องใส่ @up.ac.th');
+            return;
+        }
+
         try {
             setLoading(true);
-            const fullEmail = email.includes('@') ? email : `${email}@up.ac.th`;
+            const fullEmail = `${studentCode.toLowerCase()}@up.ac.th`;
             const response = await api.post('/users/register', {
                 title: finalTitle,
                 firstName,
@@ -182,6 +189,10 @@ const Register = () => {
                                     name="email"
                                     type="text"
                                     required
+                                    pattern="[^@\s]+"
+                                    title="กรุณากรอกเฉพาะรหัสนิสิต โดยไม่ต้องใส่ @up.ac.th"
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
                                     value={email}
                                     onChange={onChange}
                                     className="block w-full min-w-0 flex-1 rounded-l-md border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
