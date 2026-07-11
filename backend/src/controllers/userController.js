@@ -209,11 +209,19 @@ const exportStudentsCsv = asyncHandler(async (req, res) => {
 // @access  Private
 const getStudentHistory = asyncHandler(async (req, res) => {
     const attempts = await ExamAttempt.find({ student: req.user._id })
+        .select('-answers -aiScore -teacherScore -objectiveScore')
         .populate('exam', 'title durationMin')
         .populate('session', 'status startTime endTime')
         .sort({ createdAt: -1 });
         
-    res.json(attempts);
+    res.json(attempts.map((attempt) => {
+        const safeAttempt = attempt.toObject();
+        if (['pending', 'processing', 'needs-review', 'failed'].includes(attempt.gradingStatus)) {
+            safeAttempt.score = null;
+            safeAttempt.finalScore = null;
+        }
+        return safeAttempt;
+    }));
 });
 
 // @desc    Update user profile (teacher can edit any student)

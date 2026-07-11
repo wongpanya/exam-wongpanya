@@ -1,9 +1,9 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+dotenv.config();
 const Exam = require('../src/models/examModel');
 const ExamAttempt = require('../src/models/examAttemptModel');
-
-dotenv.config();
+const { prepareAttemptGrading } = require('../src/services/grading/gradingService');
 
 async function run() {
     try {
@@ -46,26 +46,11 @@ async function run() {
                 continue;
             }
 
-            // Create map of correct answers
-            const correctMap = new Map();
-            examData.questions.forEach(q => {
-                correctMap.set(q.questionId, { correct: q.correctAnswer, points: q.points || 1 });
-            });
-
-            let score = 0;
-            attempt.answers.forEach(ans => {
-                const qInfo = correctMap.get(ans.questionId);
-                if (qInfo) {
-                    if (String(ans.selectedAnswer) === String(qInfo.correct)) {
-                        score += qInfo.points;
-                    }
-                }
-            });
-
-            attempt.score = score;
-            await attempt.save();
+            // Reuse the production scoring path so AI essays are queued, never exact-matched.
+            await prepareAttemptGrading(attempt._id, { trigger: 'automatic' });
+            const refreshedAttempt = await ExamAttempt.findById(attempt._id);
             fixedCount++;
-            console.log(`✅ Graded attempt ${attempt._id} (Exam: ${examData.title}): Score = ${score}`);
+            console.log(`✅ Prepared attempt ${attempt._id} (Exam: ${examData.title}): Status = ${refreshedAttempt.gradingStatus}`);
         }
 
         console.log(`🎉 Successfully fixed ${fixedCount} attempts!`);

@@ -57,4 +57,14 @@ const cheatLogLimiter = rateLimit({
     keyGenerator: getAuthKey
 });
 
-module.exports = { authLimiter, apiLimiter, mutationLimiter, cheatLogLimiter };
+// Paid/expensive AI grading operations — per authenticated user where possible.
+const gradingLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { message: 'Too many grading requests, please wait before trying again' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: getAuthKey,
+});
+
+module.exports = { authLimiter, apiLimiter, mutationLimiter, cheatLogLimiter, gradingLimiter };

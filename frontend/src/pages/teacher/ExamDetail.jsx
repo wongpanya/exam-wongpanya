@@ -31,7 +31,7 @@ const ExamDetail = () => {
                 try {
                     const historyRes = await api.get(`/exam-sessions/${id}/history`, config);
                     setHistoryPreview(historyRes.data.slice(0, 3));
-                } catch (e) {
+                } catch {
                     // No history is fine
                 }
             } catch (err) {
@@ -230,6 +230,44 @@ const ExamDetail = () => {
                             </span>
                         </div>
 
+                        {q.type === 'text' && q.gradingMode === 'ai' ? (
+                            <div className="space-y-4 ml-2">
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-700 mb-2">Ground Truth</p>
+                                    <div className="space-y-2">
+                                        {q.aiGrading?.groundTruths?.map((answer, answerIndex) => (
+                                            <p key={answerIndex} className="text-sm text-gray-700 bg-green-50 border border-green-100 rounded-lg p-3 whitespace-pre-wrap">
+                                                {answer}
+                                            </p>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-700 mb-2">Rubric</p>
+                                    <div className="space-y-2">
+                                        {q.aiGrading?.rubricCriteria?.map((criterion) => (
+                                            <div key={criterion.rubricId} className="border border-gray-200 rounded-lg p-3">
+                                                <div className="flex justify-between gap-3">
+                                                    <p className="text-sm font-medium text-gray-900">{criterion.title}</p>
+                                                    <span className="text-xs font-semibold text-indigo-600">{criterion.maxScore} คะแนน</span>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">{criterion.description}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {q.aiGrading?.keyConcepts?.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {q.aiGrading.keyConcepts.map((concept) => (
+                                            <span key={concept} className="px-2 py-1 text-xs rounded-full bg-indigo-50 text-indigo-700">{concept}</span>
+                                        ))}
+                                    </div>
+                                )}
+                                <p className="text-xs text-gray-400">
+                                    Provider: {q.aiGrading?.providerPreference === 'system' ? 'ตามค่าระบบ' : q.aiGrading?.providerPreference} · ภาษา {q.aiGrading?.language?.toUpperCase()}
+                                </p>
+                            </div>
+                        ) : (
                         <div className="space-y-2 ml-2">
                             {q.choices.map((choice) => (
                                 <div
@@ -247,6 +285,7 @@ const ExamDetail = () => {
                                 </div>
                             ))}
                         </div>
+                        )}
                     </div>
                 ))}
             </div>

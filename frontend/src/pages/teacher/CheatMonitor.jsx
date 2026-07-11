@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
@@ -42,15 +42,6 @@ const CheatMonitor = () => {
     const [studentLogs, setStudentLogs] = useState([]);
     const [loadingStudent, setLoadingStudent] = useState(false);
     const [modalTab, setModalTab] = useState('logs'); // logs, answers
-    const pollRef = useRef(null);
-
-    const getConfig = () => {
-        const user = JSON.parse(localStorage.getItem('user'));
-        return {
-            headers: { Authorization: `Bearer ${user.token}` },
-        };
-    };
-
     const fetchLogs = async (showRefresher = false) => {
         if (showRefresher) setIsRefreshing(true);
         try {
@@ -155,7 +146,7 @@ const CheatMonitor = () => {
             await fetchStudentLogs(selectedStudent._id);
             // Refresh main data
             await fetchLogs();
-        } catch (err) {
+        } catch {
             await showAlert({ title: 'เกิดข้อผิดพลาด', message: 'ไม่สามารถเปลี่ยนสถานะการระงับได้', variant: 'danger' });
         }
     };
@@ -555,15 +546,21 @@ const CheatMonitor = () => {
                                     ) : (
                                         studentLogs.exam.questions.map((q, i) => {
                                             const studentAnswer = studentLogs.answers?.find(a => a.questionId === q.questionId)?.selectedAnswer;
-                                            const isCorrect = String(studentAnswer) === String(q.correctAnswer);
+                                            const isAiEssay = q.type === 'text' && q.gradingMode === 'ai';
+                                            const grading = studentLogs.gradingResults?.find(result => result.questionId === q.questionId);
+                                            const isCorrect = !isAiEssay && String(studentAnswer) === String(q.correctAnswer);
                                             const hasAnswered = studentAnswer !== undefined && studentAnswer !== '';
 
                                             return (
-                                                <div key={i} className={`border rounded-lg p-4 ${isCorrect ? 'bg-green-50 border-green-200' : hasAnswered ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                <div key={i} className={`border rounded-lg p-4 ${isAiEssay ? 'bg-indigo-50 border-indigo-200' : isCorrect ? 'bg-green-50 border-green-200' : hasAnswered ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                                                     <div className="flex justify-between mb-2">
                                                         <h4 className="font-semibold text-gray-900">ข้อ {i + 1}</h4>
                                                         <span className="text-xs font-bold px-2 py-1 rounded bg-white border">
-                                                            {isCorrect ? `${q.points} / ${q.points}` : `0 / ${q.points}`} คะแนน
+                                                            {isAiEssay
+                                                                ? (grading?.finalScore !== null && grading?.finalScore !== undefined
+                                                                    ? `${grading.finalScore} / ${q.points} คะแนน`
+                                                                    : grading?.status === 'failed' ? 'ตรวจไม่สำเร็จ' : 'รอผล AI')
+                                                                : isCorrect ? `${q.points} / ${q.points} คะแนน` : `0 / ${q.points} คะแนน`}
                                                         </span>
                                                     </div>
                                                     <div 
@@ -574,21 +571,30 @@ const CheatMonitor = () => {
                                                     <div className="space-y-2 text-sm">
                                                         <div className="flex items-start gap-2">
                                                             <span className="min-w-[60px] text-gray-500">ตอบ:</span>
-                                                            <span className={`font-medium ${isCorrect ? 'text-green-700' : 'text-red-600'}`}>
+                                                            <span className={`font-medium whitespace-pre-wrap ${isAiEssay ? 'text-gray-800' : isCorrect ? 'text-green-700' : 'text-red-600'}`}>
                                                                 {hasAnswered ? (
-                                                                    q.choices.find(c => c.value === studentAnswer)?.label || studentAnswer
+                                                                    q.choices?.find(c => c.value === studentAnswer)?.label || studentAnswer
                                                                 ) : (
                                                                     <span className="text-gray-400 italic">ไม่ตอบ</span>
                                                                 )}
                                                             </span>
                                                         </div>
-                                                        {!isCorrect && (
+                                                        {!isAiEssay && !isCorrect && (
                                                             <div className="flex items-start gap-2">
                                                                 <span className="min-w-[60px] text-gray-500">เฉลย:</span>
                                                                 <span className="font-medium text-green-700">
                                                                     {q.choices.find(c => c.value === q.correctAnswer)?.label || q.correctAnswer}
                                                                 </span>
                                                             </div>
+                                                        )}
+                                                        {isAiEssay && grading && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => navigate(`/teacher/exams/${id}/attempts/${studentLogs.attemptId}/grading/${q.questionId}${sessionId ? `?sessionId=${sessionId}` : ''}`)}
+                                                                className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium"
+                                                            >
+                                                                ดูรายละเอียดการตรวจ AI
+                                                            </button>
                                                         )}
                                                     </div>
                                                 </div>

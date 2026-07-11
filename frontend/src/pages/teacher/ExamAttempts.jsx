@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
-import { ArrowLeft, Search, Download, Clock, CheckCircle, AlertTriangle, XCircle, FileText } from 'lucide-react';
+import { ArrowLeft, Search, Download, Clock, CheckCircle, AlertTriangle, XCircle, FileText, Sparkles, Eye } from 'lucide-react';
 
 const ExamAttempts = () => {
     const { id } = useParams();
@@ -18,13 +18,6 @@ const ExamAttempts = () => {
     // Pagination states
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
-
-    const getConfig = () => {
-        const user = JSON.parse(localStorage.getItem('user'));
-        return {
-            headers: { Authorization: `Bearer ${user.token}` },
-        };
-    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -103,6 +96,10 @@ const ExamAttempts = () => {
             const questionAnswers = examDetails?.questions?.map(q => {
                 const studentAnswer = a.answers?.find(ans => ans.questionId === q.questionId);
                 if (!studentAnswer || !studentAnswer.selectedAnswer) return '-';
+                if (q.type === 'text' && q.gradingMode === 'ai') {
+                    const grading = a.gradingResults?.find(result => result.questionId === q.questionId);
+                    return grading?.finalScore ?? '-';
+                }
                 return studentAnswer.selectedAnswer === q.correctAnswer ? '1' : '0';
             }) || [];
 
@@ -164,6 +161,28 @@ const ExamAttempts = () => {
             default:
                 return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1 w-fit"><Clock size={12} /> กำลังทำ</span>;
         }
+    };
+
+    const getGradingStatusBadge = (attempt) => {
+        const status = attempt.gradingStatus;
+        if (status === 'needs-review') {
+            return <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><AlertTriangle size={12} /> รอตรวจซ้ำ</span>;
+        }
+        if (status === 'pending' || status === 'processing') {
+            return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><Sparkles size={12} /> AI กำลังตรวจ</span>;
+        }
+        if (status === 'failed') {
+            return <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><XCircle size={12} /> ตรวจไม่สำเร็จ</span>;
+        }
+        if (status === 'completed') {
+            return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><CheckCircle size={12} /> ตรวจแล้ว</span>;
+        }
+        return <span className="text-xs text-gray-400">ไม่ใช้ AI</span>;
+    };
+
+    const openGrading = (attempt, result) => {
+        const query = sessionId ? `?sessionId=${sessionId}` : '';
+        navigate(`/teacher/exams/${id}/attempts/${attempt._id}/grading/${result.questionId}${query}`);
     };
 
     if (loading) return <div className="p-8 text-center text-gray-500">Loading attempts...</div>;
@@ -253,14 +272,16 @@ const ExamAttempts = () => {
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">สถานะ</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ทำไปแล้ว</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">คะแนน</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">AI Grading</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">เวลาที่ใช้</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ส่งเมื่อ</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ตรวจคำตอบ</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {currentAttempts.length === 0 ? (
                                 <tr>
-                                    <td colSpan="6" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
+                                    <td colSpan="8" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
                                 </tr>
                             ) : (
                                 currentAttempts.map((attempt) => (
@@ -292,11 +313,35 @@ const ExamAttempts = () => {
                                                 <span className="text-gray-400">-</span>
                                             )}
                                         </td>
+                                        <td className="px-6 py-4">
+                                            {getGradingStatusBadge(attempt)}
+                                        </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">
                                             {getDuration(attempt.startedAt, attempt.submittedAt)}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">
                                             {formatDateTime(attempt.submittedAt)}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            {attempt.gradingResults?.length > 0 ? (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {attempt.gradingResults.map((result) => {
+                                                        const questionIndex = examDetails?.questions?.findIndex(q => q.questionId === result.questionId) ?? -1;
+                                                        return (
+                                                            <button
+                                                                key={result._id}
+                                                                type="button"
+                                                                onClick={() => openGrading(attempt, result)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
+                                                            >
+                                                                <Eye size={13} /> ข้อ {questionIndex + 1}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <span className="text-gray-400">-</span>
+                                            )}
                                         </td>
                                     </tr>
                                 ))

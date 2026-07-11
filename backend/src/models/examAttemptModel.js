@@ -35,6 +35,27 @@ const examAttemptSchema = new mongoose.Schema({
         type: Number,
         default: null,
     },
+    objectiveScore: {
+        type: Number,
+        default: 0,
+    },
+    aiScore: {
+        type: Number,
+        default: null,
+    },
+    teacherScore: {
+        type: Number,
+        default: null,
+    },
+    finalScore: {
+        type: Number,
+        default: null,
+    },
+    gradingStatus: {
+        type: String,
+        enum: ['not-required', 'pending', 'processing', 'completed', 'needs-review', 'failed'],
+        default: 'not-required',
+    },
     totalPoints: {
         type: Number,
         default: 0,
@@ -57,6 +78,7 @@ const examAttemptSchema = new mongoose.Schema({
 
 // One student can only have one attempt per session
 examAttemptSchema.index({ session: 1, student: 1 }, { unique: true });
+examAttemptSchema.index({ gradingStatus: 1, updatedAt: 1 });
 
 const ExamAttempt = mongoose.model('ExamAttempt', examAttemptSchema);
 

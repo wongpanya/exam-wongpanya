@@ -5,9 +5,13 @@ const ExamAttempt = require('../models/examAttemptModel');
 const CheatingLog = require('../models/cheatingLogModel');
 const User = require('../models/userModel');
 const Category = require('../models/categoryModel');
+const GradingResult = require('../models/gradingResultModel');
+const GradingRun = require('../models/gradingRunModel');
+const GradingReviewLog = require('../models/gradingReviewLogModel');
 const { generateQRToken, parseQRToken, verifyQRToken } = require('../utils/qrToken');
 const cheatTracker = require('../utils/cheatTracker');
 const { getIO } = require('../config/socket');
+const { prepareAttemptGrading } = require('../services/grading/gradingService');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
 
@@ -17,6 +21,32 @@ const safeEmit = (room, event, data) => {
     } catch (e) {
         console.warn('Socket emit failed:', e.message);
     }
+};
+
+const normalizeFinalAnswers = (exam, answers) => {
+    const answerMap = new Map();
+    for (const answer of Array.isArray(answers) ? answers : []) {
+        if (answerMap.has(answer.questionId)) {
+            const error = new Error(`Duplicate answer for question ${answer.questionId}`);
+            error.statusCode = 400;
+            throw error;
+        }
+        answerMap.set(answer.questionId, answer.selectedAnswer || '');
+    }
+
+    const validIds = new Set(exam.questions.map(question => question.questionId));
+    for (const questionId of answerMap.keys()) {
+        if (!validIds.has(questionId)) {
+            const error = new Error(`Unknown question ${questionId}`);
+            error.statusCode = 400;
+            throw error;
+        }
+    }
+
+    return exam.questions.map(question => ({
+        questionId: question.questionId,
+        selectedAnswer: answerMap.get(question.questionId) || '',
+    }));
 };
 
 /**
@@ -117,7 +147,7 @@ const stopExam = asyncHandler(async (req, res) => {
     // Clear in-memory cheat tracker for this session
     cheatTracker.clearSession(session._id.toString());
 
-    // Fetch and grade all in-progress/suspended attempts
+    // Finalize attempts. Exact questions are scored immediately; AI essays are queued.
     const inProgressAttempts = await ExamAttempt.find({
         session: session._id,
         status: { $in: ['in-progress', 'suspended'] }
@@ -125,25 +155,16 @@ const stopExam = asyncHandler(async (req, res) => {
 
     if (inProgressAttempts.length > 0) {
         const examData = await Exam.findById(session.exam);
-        const correctMap = new Map();
-        examData.questions.forEach(q => {
-            correctMap.set(q.questionId, { correct: q.correctAnswer, points: q.points || 1 });
-        });
 
         for (const attempt of inProgressAttempts) {
-            let score = 0;
-            if (attempt.answers && attempt.answers.length > 0) {
-                attempt.answers.forEach(ans => {
-                    const qInfo = correctMap.get(ans.questionId);
-                    if (qInfo && String(ans.selectedAnswer) === String(qInfo.correct)) {
-                        score += qInfo.points;
-                    }
-                });
-            }
-            attempt.score = score;
+            attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
             attempt.status = 'submitted';
             attempt.submittedAt = Date.now();
             await attempt.save();
+            await prepareAttemptGrading(attempt._id, {
+                requestedBy: req.user._id,
+                trigger: 'automatic',
+            });
         }
     }
 
@@ -450,8 +471,17 @@ const getAttempt = asyncHandler(async (req, res) => {
     // Usually student needs questions to take exam.
     // If session ended, maybe show results?
 
-    // Fetch exam questions but HIDE correct answers if active
-    const exam = await Exam.findById(session.exam).select('-questions.correctAnswer');
+    // Positive projection prevents answer keys, rubrics, ground truths, and provider settings leaking.
+    const exam = await Exam.findById(session.exam).select([
+        'title',
+        'description',
+        'durationMin',
+        'questions.questionId',
+        'questions.type',
+        'questions.prompt',
+        'questions.choices',
+        'questions.points',
+    ].join(' '));
 
     // Reorder questions if randomized
     let questions = exam.questions;
@@ -459,9 +489,25 @@ const getAttempt = asyncHandler(async (req, res) => {
         const qMap = new Map(exam.questions.map(q => [q.questionId, q]));
         questions = attempt.questionOrder.map(id => qMap.get(id)).filter(Boolean);
     }
+    questions = questions.map(question => ({
+        questionId: question.questionId,
+        type: question.type,
+        prompt: question.prompt,
+        choices: question.choices,
+        points: question.points,
+    }));
+
+    const safeAttempt = attempt.toObject();
+    delete safeAttempt.objectiveScore;
+    delete safeAttempt.aiScore;
+    delete safeAttempt.teacherScore;
+    if (['pending', 'processing', 'needs-review', 'failed'].includes(attempt.gradingStatus)) {
+        safeAttempt.score = null;
+        safeAttempt.finalScore = null;
+    }
 
     res.json({
-        attempt,
+        attempt: safeAttempt,
         exam: {
             title: exam.title,
             description: exam.description,
@@ -573,44 +619,39 @@ const submitExam = asyncHandler(async (req, res) => {
         throw new Error('Exam time limit exceeded');
     }
 
-    // Save final answers
-    attempt.answers = answers;
+    // Save one canonical entry per question, including an empty essay answer.
+    attempt.answers = normalizeFinalAnswers(examData, answers);
     attempt.status = 'submitted';
     attempt.submittedAt = Date.now();
-
-    // Grade immediately using already fetched examData
-    let score = 0;
-
-    // Create map of correct answers
-    const correctMap = new Map();
-    examData.questions.forEach(q => {
-        correctMap.set(q.questionId, { correct: q.correctAnswer, points: q.points || 1 });
-    });
-
-    attempt.answers.forEach(ans => {
-        const qInfo = correctMap.get(ans.questionId);
-        if (qInfo) {
-            // Simple string comparison for now. 
-            // For multiple choice, it's exact match index (0,1,2,3) usually stored as number or string
-            // Assuming string/number equality
-            if (String(ans.selectedAnswer) === String(qInfo.correct)) {
-                score += qInfo.points;
-            }
-        }
-    });
-
-    attempt.score = score;
     await attempt.save();
+
+    // This only persists pending work and exact scores; provider calls happen in the worker.
+    await prepareAttemptGrading(attempt._id, {
+        requestedBy: req.user._id,
+        trigger: 'automatic',
+    });
+    const gradedAttempt = await ExamAttempt.findById(attempt._id);
 
     // Update session stats
     await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: 1 } });
 
     safeEmit(`teacher:${session._id}`, 'student-submitted', {
         studentId: req.user._id.toString(),
-        score: score,
+        score: gradedAttempt.score,
+        gradingStatus: gradedAttempt.gradingStatus,
     });
 
-    res.json({ message: 'Submitted successfully', score, totalPoints: attempt.totalPoints });
+    const scoreIsFinal = !['pending', 'processing', 'needs-review', 'failed'].includes(gradedAttempt.gradingStatus);
+    res.json({
+        message: 'Submitted successfully',
+        score: scoreIsFinal ? gradedAttempt.finalScore : null,
+        totalPoints: gradedAttempt.totalPoints,
+        percentage: scoreIsFinal && gradedAttempt.totalPoints > 0
+            ? Math.round((gradedAttempt.finalScore / gradedAttempt.totalPoints) * 100)
+            : null,
+        gradingStatus: gradedAttempt.gradingStatus,
+        needsHumanReview: gradedAttempt.gradingStatus === 'needs-review',
+    });
 });
 
 // @desc    Log cheat event
@@ -834,13 +875,18 @@ const getStudentCheatLogs = asyncHandler(async (req, res) => {
         return res.status(404).json({ message: 'No attempt found' });
     }
 
+    const answerGradingResults = await GradingResult.find({ attempt: attempt._id })
+        .select('questionId status aiScore teacherScore finalScore maxScore needsHumanReview');
+
     res.json({
+        attemptId: attempt._id,
         student: attempt.student,
         status: attempt.status,
         score: attempt.score,
         totalPoints: attempt.totalPoints,
         answers: attempt.answers,
         exam: attempt.exam,
+        gradingResults: answerGradingResults,
         startedAt: attempt.startedAt,
         submittedAt: attempt.submittedAt,
         logs,
@@ -980,7 +1026,20 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
     const attempts = await ExamAttempt.find({ session: session._id })
         .populate('student', 'firstName lastName email');
 
-    res.json(attempts);
+    const gradingResults = await GradingResult.find({
+        attempt: { $in: attempts.map(attempt => attempt._id) },
+    }).select('attempt questionId status aiScore teacherScore finalScore maxScore needsHumanReview provider model');
+    const resultsByAttempt = new Map();
+    gradingResults.forEach((result) => {
+        const key = result.attempt.toString();
+        if (!resultsByAttempt.has(key)) resultsByAttempt.set(key, []);
+        resultsByAttempt.get(key).push(result);
+    });
+
+    res.json(attempts.map(attempt => ({
+        ...attempt.toObject(),
+        gradingResults: resultsByAttempt.get(attempt._id.toString()) || [],
+    })));
 });
 
 // @desc    Get my attempt status (polling)
@@ -999,13 +1058,13 @@ const getMyAttemptStatus = asyncHandler(async (req, res) => {
     const attempt = await ExamAttempt.findOne({
         session: session._id,
         student: req.user._id,
-    }, 'status');
+    }, 'status gradingStatus');
 
     if (!attempt) {
         return res.json({ status: 'not-started' });
     }
 
-    res.json({ status: attempt.status, sessionStatus: session.status });
+    res.json({ status: attempt.status, gradingStatus: attempt.gradingStatus, sessionStatus: session.status });
 });
 
 // @desc    Delete an exam session and all related data
@@ -1026,6 +1085,12 @@ const deleteSession = asyncHandler(async (req, res) => {
 
     // Clear in-memory cheat tracker
     cheatTracker.clearSession(session._id.toString());
+
+    const attemptIds = await ExamAttempt.find({ session: session._id }).distinct('_id');
+    const gradingResultIds = await GradingResult.find({ attempt: { $in: attemptIds } }).distinct('_id');
+    await GradingReviewLog.deleteMany({ gradingResult: { $in: gradingResultIds } });
+    await GradingRun.deleteMany({ attempt: { $in: attemptIds } });
+    await GradingResult.deleteMany({ attempt: { $in: attemptIds } });
 
     // Delete attempts
     await ExamAttempt.deleteMany({ session: session._id });

@@ -1,12 +1,19 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle, KeyRound } from 'lucide-react';
 import api from '../config/api';
 
 const TeacherLayout = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const [user, setUser] = useState(null);
+    const [user] = useState(() => {
+        try {
+            const storedUser = localStorage.getItem('user');
+            return storedUser ? JSON.parse(storedUser) : null;
+        } catch {
+            return null;
+        }
+    });
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [announcement, setAnnouncement] = useState(null);
@@ -72,18 +79,14 @@ const TeacherLayout = () => {
     }, []);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (!storedUser) {
+        if (!user) {
             navigate('/login');
             return;
         }
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser.role !== 'teacher') {
+        if (user.role !== 'teacher') {
             navigate('/');
-            return;
         }
-        setUser(parsedUser);
-    }, [navigate]);
+    }, [navigate, user]);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
@@ -110,6 +113,11 @@ const TeacherLayout = () => {
             name: 'สร้างข้อสอบ',
             path: '/teacher/exams/create',
             icon: <PlusCircle size={20} />,
+        },
+        {
+            name: 'ตั้งค่า AI Provider',
+            path: '/teacher/ai-settings',
+            icon: <KeyRound size={20} />,
         },
     ];
 

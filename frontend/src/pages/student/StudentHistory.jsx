@@ -44,6 +44,22 @@ const StudentHistory = () => {
         }
     };
 
+    const getScoreContent = (attempt) => {
+        if (['pending', 'processing'].includes(attempt.gradingStatus)) {
+            return <span className="text-blue-600 text-sm font-medium">AI กำลังตรวจ</span>;
+        }
+        if (attempt.gradingStatus === 'needs-review') {
+            return <span className="text-amber-600 text-sm font-medium">รออาจารย์ยืนยัน</span>;
+        }
+        if (attempt.gradingStatus === 'failed') {
+            return <span className="text-red-600 text-sm font-medium">รออาจารย์ตรวจ</span>;
+        }
+        if (attempt.score !== null) {
+            return <span className="font-bold text-gray-900">{attempt.score} <span className="text-gray-400 text-xs font-normal">/ {attempt.totalPoints}</span></span>;
+        }
+        return <span className="text-gray-400">-</span>;
+    };
+
     if (loading) return <div className="p-8 text-center text-gray-500">กำลังโหลดประวัติการสอบ...</div>;
 
     return (
@@ -92,11 +108,7 @@ const StudentHistory = () => {
                                             {getStatusBadge(attempt.status)}
                                         </td>
                                         <td className="px-6 py-4">
-                                            {attempt.score !== null ? (
-                                                <span className="font-bold text-gray-900">{attempt.score} <span className="text-gray-400 text-xs font-normal">/ {attempt.totalPoints}</span></span>
-                                            ) : (
-                                                <span className="text-gray-400">-</span>
-                                            )}
+                                            {getScoreContent(attempt)}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">
                                             {formatDateTime(attempt.submittedAt || attempt.createdAt)}
