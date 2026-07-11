@@ -27,7 +27,7 @@ const STATUS_STYLES = {
     pending: 'bg-amber-100 text-amber-800 border-amber-200',
     processing: 'bg-blue-100 text-blue-800 border-blue-200',
     completed: 'bg-green-100 text-green-800 border-green-200',
-    'needs-review': 'bg-orange-100 text-orange-800 border-orange-200',
+    'needs-review': 'bg-amber-500 text-white border-amber-600 shadow-sm font-bold',
     reviewed: 'bg-indigo-100 text-indigo-800 border-indigo-200',
     failed: 'bg-red-100 text-red-800 border-red-200',
     succeeded: 'bg-green-100 text-green-800 border-green-200',
@@ -38,7 +38,7 @@ const STATUS_LABELS = {
     pending: 'รอตรวจ',
     processing: 'กำลังตรวจ',
     completed: 'ตรวจแล้ว',
-    'needs-review': 'รออาจารย์ตรวจ',
+    'needs-review': 'ต้องให้อาจารย์ตรวจซ้ำ',
     reviewed: 'อาจารย์ตรวจแล้ว',
     failed: 'ตรวจไม่สำเร็จ',
     succeeded: 'สำเร็จ',
@@ -366,9 +366,17 @@ const GradingReview = () => {
                         >
                             ก่อนหน้า
                         </button>
-                        <span className="text-xs font-medium text-gray-500 px-2 border-x border-gray-100">
-                            ข้อที่ {currentIndex + 1} จาก {essayQuestions.length} ข้อที่ใช้ AI
-                        </span>
+                        <select
+                            value={questionId}
+                            onChange={(e) => navigate(`/teacher/exams/${id}/attempts/${attemptId}/grading/${e.target.value}${sessionId ? `?sessionId=${sessionId}` : ''}`)}
+                            className="text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-md py-1 px-2 mx-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                        >
+                            {essayQuestions.map((q, idx) => (
+                                <option key={q.questionId} value={q.questionId}>
+                                    ข้อที่ {idx + 1} จาก {essayQuestions.length} ข้อที่ใช้ AI
+                                </option>
+                            ))}
+                        </select>
                         <button
                             type="button"
                             disabled={!nextQuestion}
@@ -545,8 +553,8 @@ const GradingReview = () => {
                                                     </div>
                                                 </div>
                                                 {q.gradingResult.needsHumanReview && (
-                                                    <span className="inline-flex items-center gap-1 rounded bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-800 border border-orange-200">
-                                                        <AlertCircle size={10} /> ต้องการการตรวจทาน
+                                                    <span className="inline-flex items-center gap-1 rounded bg-amber-500 text-white border border-amber-600 px-2 py-0.5 text-[10px] font-bold shadow-sm">
+                                                        <AlertCircle size={10} /> ต้องให้อาจารย์ตรวจซ้ำ
                                                     </span>
                                                 )}
                                             </div>
@@ -895,16 +903,18 @@ const GradingReview = () => {
                         <p className="mt-3 text-center text-xs text-gray-500">คะแนนเต็ม {formatScore(result?.maxScore)} คะแนน</p>
                     </section>
 
-                    <section className={`rounded-xl border p-5 shadow-sm ${result?.needsHumanReview ? 'border-orange-200 bg-orange-50' : 'border-gray-100 bg-white'}`}>
-                        <h2 className="flex items-center gap-2 font-semibold text-gray-900">
-                            <ShieldCheck size={19} className={result?.needsHumanReview ? 'text-orange-600' : 'text-green-600'} />
+                    <section className={`rounded-xl border p-5 shadow-sm transition-all duration-200 ${result?.needsHumanReview ? 'border-amber-300 bg-amber-50 shadow-md ring-2 ring-amber-500/20' : 'border-gray-100 bg-white'}`}>
+                        <h2 className="flex items-center gap-2 font-bold text-gray-900">
+                            <ShieldCheck size={19} className={result?.needsHumanReview ? 'text-amber-600 animate-bounce' : 'text-green-600'} />
                             สถานะ Human Review
                         </h2>
                         <div className="mt-3">
                             {result?.needsHumanReview ? (
                                 <>
-                                    <p className="text-sm font-semibold text-orange-900">ต้องให้อาจารย์ตรวจซ้ำ</p>
-                                    <p className="mt-1 text-sm leading-6 text-orange-800">{result.reviewReason || 'ผลตรวจมีความไม่แน่นอน โปรดทบทวนหลักฐานและคะแนน'}</p>
+                                    <p className="text-sm font-bold text-amber-950 flex items-center gap-1.5">
+                                        <AlertCircle size={16} className="text-amber-600 animate-pulse shrink-0" /> ต้องให้อาจารย์ตรวจซ้ำ
+                                    </p>
+                                    <p className="mt-1.5 text-xs leading-relaxed font-medium text-amber-800">{result.reviewReason || 'ผลตรวจมีความไม่แน่นอน โปรดทบทวนหลักฐานและคะแนน'}</p>
                                 </>
                             ) : result?.status === 'reviewed' ? (
                                 <>
