@@ -13,6 +13,8 @@ const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [requiresStudentCode, setRequiresStudentCode] = useState(false);
+    const [studentCode, setStudentCode] = useState('');
 
     const { email, password } = formData;
 
@@ -21,17 +23,33 @@ const Login = () => {
             ...prevState,
             [e.target.name]: e.target.value,
         }));
+
+        if (e.target.name === 'email') {
+            setRequiresStudentCode(false);
+            setStudentCode('');
+        }
     };
 
     const onSubmit = async (e) => {
         e.preventDefault();
         setError('');
+
+        const normalizedEmail = email.trim().toLowerCase();
+
+        const normalizedStudentCode = studentCode.trim();
+
+        if (requiresStudentCode && (!normalizedStudentCode || normalizedStudentCode.includes('@') || /\s/.test(normalizedStudentCode))) {
+            setError('กรุณากรอกเฉพาะรหัสนิสิต โดยไม่ต้องใส่ @up.ac.th');
+            return;
+        }
+
         setLoading(true);
 
         try {
             const response = await api.post('/users/login', {
-                email,
+                email: normalizedEmail,
                 password,
+                ...(requiresStudentCode ? { studentCode: normalizedStudentCode } : {}),
             });
 
             if (response.data) {
@@ -47,6 +65,9 @@ const Login = () => {
                 }
             }
         } catch (err) {
+            if (err.response?.data?.requiresStudentCode) {
+                setRequiresStudentCode(true);
+            }
             setError(err.response?.data?.message || 'เข้าสู่ระบบล้มเหลว');
         } finally {
             setLoading(false);
@@ -103,6 +124,30 @@ const Login = () => {
                                 </button>
                             </div>
                         </div>
+
+                        {requiresStudentCode && (
+                            <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+                                <label htmlFor="studentCode" className="block text-sm font-medium text-amber-900">
+                                    รหัสนิสิต
+                                </label>
+                                <p className="mt-1 text-xs text-amber-700">
+                                    ระบบจะเปลี่ยนอีเมลบัญชีนี้เป็น รหัสนิสิต@up.ac.th
+                                </p>
+                                <input
+                                    id="studentCode"
+                                    name="studentCode"
+                                    type="text"
+                                    required
+                                    pattern="[^@\s]+"
+                                    value={studentCode}
+                                    onChange={(e) => setStudentCode(e.target.value)}
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    className="mt-2 block w-full rounded-md border border-amber-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="กรอกรหัสนิสิต"
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <div>

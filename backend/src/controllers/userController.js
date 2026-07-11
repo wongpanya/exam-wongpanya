@@ -87,11 +87,39 @@ const registerUser = asyncHandler(async (req, res) => {
 // @route   POST /api/users/login
 // @access  Public
 const authUser = asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password, studentCode } = req.body;
 
     const user = await User.findOne({ email });
 
     if (user && (await user.matchPassword(password))) {
+        let emailMigrated = false;
+
+        if (user.role === 'student' && !user.email.toLowerCase().endsWith('@up.ac.th')) {
+            if (!studentCode) {
+                return res.status(409).json({
+                    message: 'บัญชีนักเรียนนี้ใช้อีเมลนอกมหาวิทยาลัย กรุณากรอกรหัสนิสิตเพื่อเปลี่ยนเป็น @up.ac.th',
+                    requiresStudentCode: true,
+                });
+            }
+
+            const newEmail = `${studentCode.toLowerCase()}@up.ac.th`;
+            const emailExists = await User.findOne({
+                email: newEmail,
+                _id: { $ne: user._id },
+            });
+
+            if (emailExists) {
+                return res.status(409).json({
+                    message: 'รหัสนิสิตนี้ถูกใช้กับบัญชีอื่นแล้ว กรุณาติดต่ออาจารย์ผู้ดูแล',
+                    requiresStudentCode: true,
+                });
+            }
+
+            user.email = newEmail;
+            await user.save();
+            emailMigrated = true;
+        }
+
         res.json({
             _id: user._id,
             title: user.title,
@@ -101,6 +129,7 @@ const authUser = asyncHandler(async (req, res) => {
             email: user.email,
             role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
             seenTutorials: user.seenTutorials || [],
+            emailMigrated,
             token: generateToken(user._id),
         });
     } else {

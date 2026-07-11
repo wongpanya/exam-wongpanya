@@ -1,12 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { QrCode, BookOpen, GraduationCap, FolderOpen } from 'lucide-react';
+import { QrCode, BookOpen, FolderOpen } from 'lucide-react';
 import api from '../../config/api';
 
 const StudentHome = () => {
     const navigate = useNavigate();
     const [joinedCategories, setJoinedCategories] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [user] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('user'));
+        } catch {
+            return null;
+        }
+    });
 
     useEffect(() => {
         const fetchJoinedCategories = async () => {
@@ -29,9 +36,14 @@ const StudentHome = () => {
 
     return (
         <div className="space-y-6">
-            <div>
+            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-2xl p-6">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">หน้าหลัก</h1>
-                <p className="text-gray-500 mt-1">ยินดีต้อนรับเข้าสู่ระบบสอบ</p>
+                <div className="mt-3">
+                    <p className="font-semibold text-gray-800">
+                        {user ? `${user.title || ''}${user.firstName || ''} ${user.lastName || ''}`.trim() : '-'}
+                    </p>
+                    <p className="mt-0.5 text-sm text-gray-500">{user?.email || '-'}</p>
+                </div>
             </div>
 
             {/* Navigation Cards */}

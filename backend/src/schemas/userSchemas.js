@@ -1,9 +1,11 @@
 const { z } = require('zod');
 
-const upEmailSchema = z.string()
+const emailSchema = z.string()
     .trim()
     .toLowerCase()
-    .email('อีเมลไม่ถูกต้อง')
+    .email('อีเมลไม่ถูกต้อง');
+
+const upEmailSchema = emailSchema
     .refine(email => email.endsWith('@up.ac.th'), 'ต้องใช้อีเมล @up.ac.th เท่านั้น');
 
 const registerSchema = z.object({
@@ -16,8 +18,13 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-    email: upEmailSchema,
+    email: emailSchema,
     password: z.string().min(1, 'กรุณากรอกรหัสผ่าน'),
+    studentCode: z.string()
+        .trim()
+        .min(1, 'กรุณากรอกรหัสนิสิต')
+        .regex(/^[^@\s]+$/, 'กรุณากรอกเฉพาะรหัสนิสิต')
+        .optional(),
 });
 
 const updateUserSchema = z.object({
