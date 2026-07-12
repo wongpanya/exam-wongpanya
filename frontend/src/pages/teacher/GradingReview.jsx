@@ -455,8 +455,20 @@ const GradingReview = () => {
                                         <p className="mb-2 text-xs font-semibold text-gray-600 flex items-center gap-1">
                                             <UserCheck size={14} /> คำตอบนักศึกษา
                                         </p>
-                                        <div className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-800">
-                                            {q.studentAnswer || <span className="italic text-gray-400">ไม่ได้ตอบ</span>}
+                                        <div className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-800 font-medium">
+                                            {q.type === 'text' ? (
+                                                q.studentAnswer || <span className="italic text-gray-400">ไม่ได้ตอบ</span>
+                                            ) : (
+                                                (() => {
+                                                    if (!q.studentAnswer) return <span className="italic text-gray-400">ไม่ได้ตอบ</span>;
+                                                    const chosenValues = q.studentAnswer.split(',').map(v => v.trim().toLowerCase());
+                                                    const matchedChoices = q.choices?.filter(c => chosenValues.includes(c.value.toLowerCase()));
+                                                    if (matchedChoices && matchedChoices.length > 0) {
+                                                        return matchedChoices.map(c => `${c.value.toUpperCase()}. ${c.label}`).join(', ');
+                                                    }
+                                                    return q.studentAnswer;
+                                                })()
+                                            )}
                                         </div>
                                     </div>
 
@@ -466,8 +478,8 @@ const GradingReview = () => {
                                             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">ตัวเลือก</p>
                                             <div className="grid gap-2 sm:grid-cols-2">
                                                 {q.choices.map((c) => {
-                                                    const isStudentChoice = q.studentAnswer?.split(',').includes(c.value);
-                                                    const isCorrectChoice = q.correctAnswer?.split(',').includes(c.value);
+                                                    const isStudentChoice = q.studentAnswer?.toLowerCase().split(',').map(s => s.trim()).includes(c.value.toLowerCase());
+                                                    const isCorrectChoice = q.correctAnswer?.toLowerCase().split(',').map(s => s.trim()).includes(c.value.toLowerCase());
                                                     return (
                                                         <div
                                                             key={c.value}
@@ -481,8 +493,8 @@ const GradingReview = () => {
                                                                     : 'border-gray-200 text-gray-600'
                                                             }`}
                                                         >
-                                                            <span className="font-bold">{c.label}.</span>
-                                                            <span>{c.value}</span>
+                                                            <span className="font-bold">{c.value.toUpperCase()}.</span>
+                                                            <span>{c.label}</span>
                                                             {isStudentChoice && <span className="ml-auto text-[10px] uppercase font-bold px-1 rounded bg-current/10">คำตอบเด็ก</span>}
                                                             {isCorrectChoice && <span className="ml-auto text-[10px] uppercase font-bold px-1 rounded bg-green-600 text-white">ถูกต้อง</span>}
                                                         </div>
