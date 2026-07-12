@@ -221,7 +221,11 @@ const AIGradingConfig = ({ value, points, onChange, onTest, providerSettings }) 
 
             <fieldset className="space-y-3">
                 <legend className="text-sm font-medium text-gray-700">แนวคำตอบ (Ground Truth)</legend>
-                <p className="text-xs text-gray-500">เพิ่มแนวคำตอบที่ถูกต้องได้หลายรูปแบบ (สูงสุด 10 คำตอบ)</p>
+                <div className="text-xs text-gray-500 space-y-1">
+                    <p>• เพิ่มแนวคำตอบได้หลายรูปแบบ (สูงสุด 10 คำตอบ)</p>
+                    <p>• ระบบใช้เป็นข้อมูลอ้างอิงในการวิเคราะห์ ไม่จำเป็นต้องตรงกับคำตอบของนักศึกษาทุกคำ</p>
+                    <p>• AI จะพิจารณาความหมายร่วมกับ Rubric และ Key Concepts</p>
+                </div>
                 {config.groundTruths.map((groundTruth, index) => (
                     <div key={index} className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
@@ -262,9 +266,12 @@ const AIGradingConfig = ({ value, points, onChange, onTest, providerSettings }) 
 
             <fieldset className="space-y-3">
                 <legend className="text-sm font-medium text-gray-700">เกณฑ์การให้คะแนน (Rubric)</legend>
-                <p className="text-xs text-gray-500">
-                    คะแนนเต็มของทุกเกณฑ์ต้องรวมเท่ากับคะแนนเต็มของข้อนี้
-                </p>
+                <div className="text-xs text-gray-500 space-y-1">
+                    <p>• เพิ่มได้หลายข้อ (ไม่จำกัดจำนวนเกณฑ์)</p>
+                    <p>• แต่ละ Rubric มี <strong>ชื่อเกณฑ์</strong>, <strong>คำอธิบาย</strong>, และ <strong>คะแนนเต็ม</strong></p>
+                    <p>• คะแนนรวมของ Rubric ทุกข้อ ต้องเท่ากับคะแนนเต็มของคำถาม</p>
+                    <p>• AI จะตรวจและให้คะแนนทีละ Rubric พร้อมหลักฐาน (Evidence) และเหตุผลของแต่ละเกณฑ์</p>
+                </div>
                 {config.rubricCriteria.map((criterion, index) => (
                     <div key={index} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
                         <div className="flex items-center justify-between gap-3">

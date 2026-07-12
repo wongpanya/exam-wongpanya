@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
-import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload, ChevronDown } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
 import AIGradingConfig from '../../components/AIGradingConfig';
 
@@ -50,9 +50,10 @@ const normalizeImportedQuestion = (question) => {
 
 // --- CSV Template & Parser ---
 const CSV_TEMPLATE_ROWS = [
-    ['QuestionType', 'Prompt', 'Option1', 'Option2', 'Option3', 'Option4', 'CorrectAnswer', 'Points', 'GroundTruths', 'RubricTitle', 'RubricDescription', 'KeyConcepts'],
-    ['ปรนัย', 'เมืองหลวงของไทยคือ?', 'เชียงใหม่', 'กรุงเทพ', 'ภูเก็ต', 'ขอนแก่น', '2', '1', '', '', '', ''],
-    ['อัตนัย', 'อธิบายกระบวนการสังเคราะห์ด้วยแสงโดยสังเขป', '', '', '', '', '', '5', 'พืชใช้พลังงานแสง เปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลและออกซิเจน', 'ความถูกต้องและความครบถ้วน', 'อธิบายสารตั้งต้น พลังงานแสง และผลผลิตได้ครบถ้วน', 'พลังงานแสง;น้ำ;คาร์บอนไดออกไซด์;น้ำตาล;ออกซิเจน'],
+    ['QuestionType', 'Prompt', 'Option1', 'Option2', 'Option3', 'Option4', 'CorrectAnswer', 'Points', 'GroundTruths', 'Rubrics', 'KeyConcepts'],
+    ['ปรนัย', 'เมืองหลวงของไทยคือ?', 'เชียงใหม่', 'กรุงเทพ', 'ภูเก็ต', 'ขอนแก่น', '2', '1', '', '', ''],
+    ['อัตนัย', 'อธิบายกระบวนการสังเคราะห์ด้วยแสงโดยสังเขป', '', '', '', '', '', '5', '["พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลและออกซิเจน","การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้แสง น้ำ และคาร์บอนไดออกไซด์ในการสร้างอาหาร พร้อมปล่อยออกซิเจน"]', '[{"title":"สารตั้งต้นและพลังงาน","description":"กล่าวถึงพลังงานแสง น้ำ และคาร์บอนไดออกไซด์ที่ใช้ในกระบวนการสังเคราะห์ด้วยแสง","score":3},{"title":"ผลผลิตของกระบวนการ","description":"กล่าวถึงน้ำตาลหรืออาหารของพืช และออกซิเจนซึ่งเป็นผลผลิตของกระบวนการ","score":2}]', '["พลังงานแสง","น้ำ","คาร์บอนไดออกไซด์","น้ำตาล","ออกซิเจน","การสังเคราะห์ด้วยแสง"]'],
+    ['อัตนัย', 'อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning', '', '', '', '', '', '10', '["Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้จากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น", "Deep Learning สามารถเรียนรู้ Feature จากข้อมูลได้อัตโนมัติ ขณะที่ Machine Learning หลายวิธีต้องอาศัย Feature Engineering", "Deep Learning เหมาะกับข้อมูลขนาดใหญ่และงานที่ซับซ้อน เช่น Computer Vision และ Speech Recognition"]', '[{"title":"อธิบายความสัมพันธ์ระหว่าง AI, ML และ DL","description":"อธิบายว่า Deep Learning เป็นส่วนหนึ่งของ Machine Learning และ Machine Learning เป็นส่วนหนึ่งของ AI","score":3},{"title":"อธิบาย Neural Network","description":"กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น","score":3},{"title":"เปรียบเทียบความแตกต่าง","description":"อธิบาย Feature Engineering และ Feature Learning","score":2},{"title":"ยกตัวอย่างการใช้งาน","description":"ยกตัวอย่างงานของ Deep Learning อย่างน้อย 1 ตัวอย่าง","score":2}]', '["Machine Learning", "Deep Learning", "Artificial Intelligence", "Neural Network", "Feature Learning", "Feature Engineering", "Computer Vision"]'],
 ];
 
 const escapeCSVCell = value => {
@@ -100,7 +101,18 @@ function parseCSVToQuestions(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) throw new Error('ไฟล์ CSV ต้องมีอย่างน้อย 1 แถวข้อมูล (ไม่รวม header)');
 
-    // Skip header row
+    // Parse headers
+    const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+
+    const getColValue = (cols, possibleHeaders, fallbackIndex) => {
+        for (const h of possibleHeaders) {
+            const idx = headers.indexOf(h.toLowerCase());
+            if (idx >= 0 && idx < cols.length) return cols[idx];
+        }
+        if (fallbackIndex >= 0 && fallbackIndex < cols.length) return cols[fallbackIndex];
+        return '';
+    };
+
     const dataLines = lines.slice(1);
     const questions = [];
 
@@ -108,29 +120,90 @@ function parseCSVToQuestions(csvText) {
         const cols = parseCSVLine(dataLines[i]);
         if (cols.length < 3) continue; // skip invalid rows
 
-        const [
-            rawType,
-            prompt,
-            opt1,
-            opt2,
-            opt3,
-            opt4,
-            rawCorrect,
-            rawPoints,
-            rawGroundTruths = '',
-            rawRubricTitle = '',
-            rawRubricDescription = '',
-            rawKeyConcepts = '',
-        ] = cols;
+        const rawType = getColValue(cols, ['QuestionType', 'type'], 0);
+        const prompt = getColValue(cols, ['Prompt', 'question'], 1);
+        const opt1 = getColValue(cols, ['Option1'], 2);
+        const opt2 = getColValue(cols, ['Option2'], 3);
+        const opt3 = getColValue(cols, ['Option3'], 4);
+        const opt4 = getColValue(cols, ['Option4'], 5);
+        const rawCorrect = getColValue(cols, ['CorrectAnswer'], 6);
+        const rawPoints = getColValue(cols, ['Points'], 7);
+        const rawGroundTruths = getColValue(cols, ['GroundTruths', 'groundtruth'], 8);
+        const rawRubrics = getColValue(cols, ['Rubrics', 'RubricTitle', 'rubrictitle'], 9);
+        const rawRubricDescription = getColValue(cols, ['RubricDescription'], 10);
+        const rawKeyConcepts = getColValue(cols, ['KeyConcepts', 'keyconcepts', 'keyconcept'], 11);
+
         const type = rawType?.trim();
         const isText = type === 'อัตนัย' || type?.toLowerCase() === 'text';
 
         if (isText) {
-            const points = Number(rawPoints) || 1;
-            const groundTruths = (rawGroundTruths || rawCorrect || '')
-                .split(/[;|\n]/)
-                .map(item => item.trim())
-                .filter(Boolean);
+            let groundTruths = [];
+            const gtTrimmed = rawGroundTruths.trim();
+            if (gtTrimmed.startsWith('[') && gtTrimmed.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(gtTrimmed);
+                    if (Array.isArray(parsed)) {
+                        groundTruths = parsed.map(item => String(item).trim()).filter(Boolean);
+                    }
+                } catch (e) {}
+            }
+            if (groundTruths.length === 0) {
+                groundTruths = (rawGroundTruths || rawCorrect || '')
+                    .split(/[;|\n]/)
+                    .map(item => item.trim())
+                    .filter(Boolean);
+            }
+
+            let rubricCriteria = [];
+            const rubricTrimmed = rawRubrics.trim();
+            if (rubricTrimmed.startsWith('[') && rubricTrimmed.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(rubricTrimmed);
+                    if (Array.isArray(parsed)) {
+                        rubricCriteria = parsed.map((item, idx) => ({
+                            rubricId: item.rubricId || item.id || `criterion-${idx + 1}`,
+                            title: item.title || item.RubricTitle || `เกณฑ์ที่ ${idx + 1}`,
+                            description: item.description || item.RubricDescription || '',
+                            maxScore: Number(item.score || item.maxScore || item.points) || 1,
+                        }));
+                    }
+                } catch (e) {}
+            }
+
+            const rubricTotalPoints = rubricCriteria.reduce((sum, item) => sum + item.maxScore, 0);
+            const points = rubricCriteria.length > 0 ? rubricTotalPoints : (Number(rawPoints) || 1);
+
+            if (rubricCriteria.length === 0) {
+                rubricCriteria = [{
+                    rubricId: 'criterion-1',
+                    title: rawRubrics.trim() || 'ความถูกต้องของคำตอบ',
+                    description: rawRubricDescription.trim() || 'ประเมินความถูกต้องและความครบถ้วนตามโจทย์',
+                    maxScore: points,
+                }];
+            }
+
+            let keyConcepts = [];
+            const kcTrimmed = rawKeyConcepts.trim();
+            if (kcTrimmed.startsWith('[') && kcTrimmed.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(kcTrimmed);
+                    if (Array.isArray(parsed)) {
+                        keyConcepts = parsed.map(item => {
+                            if (item && typeof item === 'object') {
+                                return String(item.concept || item.title || '').trim();
+                            }
+                            return String(item || '').trim();
+                        }).filter(Boolean);
+                    }
+                } catch (e) {}
+            }
+            if (keyConcepts.length === 0) {
+                keyConcepts = rawKeyConcepts
+                    .split(/[;|\n]/)
+                    .map(item => item.trim())
+                    .filter(Boolean);
+            }
+
             questions.push({
                 type: 'text',
                 prompt: prompt || '',
@@ -141,16 +214,8 @@ function parseCSVToQuestions(csvText) {
                 aiGrading: {
                     ...createDefaultAiGrading(points, groundTruths[0] || ''),
                     groundTruths: groundTruths.length > 0 ? groundTruths : [''],
-                    rubricCriteria: [{
-                        rubricId: 'criterion-1',
-                        title: rawRubricTitle.trim() || 'ความถูกต้องของคำตอบ',
-                        description: rawRubricDescription.trim() || 'ประเมินความถูกต้องและความครบถ้วนตามโจทย์',
-                        maxScore: points,
-                    }],
-                    keyConcepts: rawKeyConcepts
-                        .split(/[;|\n]/)
-                        .map(item => item.trim())
-                        .filter(Boolean),
+                    rubricCriteria,
+                    keyConcepts,
                 },
             });
         } else {
@@ -187,6 +252,49 @@ function parseCSVToQuestions(csvText) {
     return questions;
 }
 
+const AI_CSV_PROMPT = `คุณคือผู้เชี่ยวชาญการออกข้อสอบ จงสร้างคำถามข้อสอบในรูปแบบไฟล์ CSV ที่มีหัวคอลัมน์ (Headers) ดังต่อไปนี้:
+
+QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points,GroundTruths,Rubrics,KeyConcepts
+
+**กติกาโครงสร้างคอลัมน์:**
+
+1. GroundTruths (สำหรับอัตนัยเท่านั้น):
+- บันทึกในรูปแบบ JSON Array ของ String เช่น:
+  ["แนวคำตอบที่ 1", "แนวคำตอบที่ 2"]
+- กำหนดได้ 1 ถึง 10 แนวคำตอบ
+- ห้ามคัดลอกรายละเอียดของ Rubrics มาใส่ในนี้โดยตรง
+
+2. Rubrics (สำหรับอัตนัยเท่านั้น):
+- บันทึกในรูปแบบ JSON Array ของ Object เกณฑ์ประเมินย่อย เช่น:
+  [{"title":"ชื่อเกณฑ์ 1","description":"คำอธิบายเกณฑ์ 1","score":3},{"title":"ชื่อเกณฑ์ 2","description":"คำอธิบายเกณฑ์ 2","score":2}]
+- สามารถเพิ่มเกณฑ์ประเมินย่อยได้ไม่จำกัด (แนะนำ 2 ถึง 10 เกณฑ์ต่อข้อ)
+- คะแนนเต็มของ Rubrics ทุกเกณฑ์รวมกัน (score) ต้องเท่ากับคะแนนดิบข้อสอบในคอลัมน์ Points เสมอ
+- ห้ามคัดลอกรายละเอียดของ GroundTruths มาใส่ในนี้โดยตรง
+
+3. KeyConcepts (สำหรับอัตนัยเท่านั้น):
+- บันทึกในรูปแบบ JSON Array ของคำสำคัญหรือคีย์เวิร์ด เช่น:
+  ["คำสำคัญ 1", "คำสำคัญ 2", "คำสำคัญ 3"]
+- แนะนำอย่างน้อย 3 คำสำคัญต่อข้อ
+- ต้องเป็นคำหรือวลีสั้นๆ เท่านั้น ห้ามเขียนเป็นประโยคยาวๆ
+
+4. สำหรับข้อสอบปรนัย (Multiple-choice):
+- คอลัมน์ Option1-4 ต้องใส่ตัวเลือกช้อยส์ 1-4
+- CorrectAnswer ต้องใส่เป็นตัวเลขตัวเลือกที่ถูกต้อง เช่น "2" (หมายถึง Option2)
+- คอลัมน์ GroundTruths, Rubrics, KeyConcepts ต้องปล่อยว่างไว้เสมอ
+
+5. การจัดเก็บ JSON ใน CSV:
+- คอลัมน์ที่เป็น JSON Array ต้องมีโครงสร้างที่ถูกต้องตามหลัก JSON Specification
+- ต้องจัดรูปแบบข้อความและ Escape เครื่องหมายฟันหนูคู่ (Double Quotes) ใน JSON ให้เป็นเครื่องหมายฟันหนูคู่สองอันประชิดกัน ("") ตามมาตรฐานไฟล์ CSV (RFC 4180)
+
+---
+
+**ตัวอย่างข้อมูลไฟล์ CSV ที่ถูกต้อง:**
+
+QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points,GroundTruths,Rubrics,KeyConcepts
+ปรนัย,"เมืองหลวงของไทยคือ?","เชียงใหม่","กรุงเทพ","ภูเก็ต","ขอนแก่น","2",1,,,
+อัตนัย,"อธิบายกระบวนการสังเคราะห์ด้วยแสงโดยสังเขป",,,,,,5,"[""พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลและออกซิเจน"",""การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้แสง น้ำ และคาร์บอนไดออกไซด์ในการสร้างอาหาร พร้อมปล่อยออกซิเจน""]","[{""title"":""สารตั้งต้นและพลังงาน"",""description"":""กล่าวถึงพลังงานแสง น้ำ และคาร์บอนไดออกไซด์ที่ใช้ในกระบวนการสังเคราะห์ด้วยแสง"",""score"":3},{""title"":""ผลผลิตของกระบวนการ"",""description"":""กล่าวถึงน้ำตาลหรืออาหารของพืช และออกซิเจนซึ่งเป็นผลผลิตของกระบวนการ"",""score"":2}]","[""พลังงานแสง"",""น้ำ"",""คาร์บอนไดออกไซด์"",""น้ำตาล"",""ออกซิเจน"",""การสังเคราะห์ด้วยแสง""]"
+อัตนัย,"อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning",,,,,,10,"[""Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้จากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น"",""Deep Learning สามารถเรียนรู้ Feature จากข้อมูลได้อัตโนมัติ ขณะที่ Machine Learning หลายวิธีต้องอาศัย Feature Engineering"",""Deep Learning เหมาะกับข้อมูลขนาดใหญ่และงานที่ซับซ้อน เช่น Computer Vision และ Speech Recognition""]","[{""title"":""อธิบายความสัมพันธ์ระหว่าง AI, ML และ DL"",""description"":""อธิบายว่า Deep Learning เป็นส่วนหนึ่งของ Machine Learning และ Machine Learning เป็นส่วนหนึ่งของ AI"",""score"":3},{""title"":""อธิบาย Neural Network"",""description"":""กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น"",""score"":3},{""title"":""เปรียบเทียบความแตกต่าง"",""description"":""อธิบายความแตกต่างด้าน Feature Engineering และ Feature Learning"",""score"":2},{""title"":""ยกตัวอย่างการใช้งาน"",""description"":""ยกตัวอย่างงานของ Deep Learning อย่างน้อย 1 ตัวอย่าง"",""score"":2}]","[""Machine Learning"",""Deep Learning"",""Artificial Intelligence"",""Neural Network"",""Feature Learning"",""Feature Engineering"",""Computer Vision""]"`;
+
 const CreateExam = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -194,6 +302,13 @@ const CreateExam = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [providerSettings, setProviderSettings] = useState({ primary: 'gemini', fallbacks: [], providers: [] });
+    const [promptCopied, setPromptCopied] = useState(false);
+
+    const handleCopyPrompt = () => {
+        navigator.clipboard.writeText(AI_CSV_PROMPT);
+        setPromptCopied(true);
+        setTimeout(() => setPromptCopied(false), 2000);
+    };
 
     // Check for imported questions from AI Generator
     const importedQuestions = location.state?.importedQuestions;
@@ -538,7 +653,7 @@ const CreateExam = () => {
                 </div>
 
                 {/* CSV Import Section */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 space-y-4">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                         <div>
                             <h2 className="text-lg font-semibold text-gray-900">นำเข้าข้อสอบจาก CSV</h2>
@@ -567,6 +682,34 @@ const CreateExam = () => {
                                 <Upload size={16} /> อัปโหลด CSV
                             </button>
                         </div>
+                    </div>
+
+                    {/* AI Generation Guide (Collapsible) */}
+                    <div className="border-t border-gray-100 pt-4">
+                        <details className="group">
+                            <summary className="flex items-center justify-between cursor-pointer text-sm font-semibold text-indigo-600 hover:text-indigo-700 select-none">
+                                <span>💡 คู่มือโครงสร้างและ Prompt สำหรับสั่ง AI ออกข้อสอบ (AI CSV Generation Specification)</span>
+                                <span className="transition group-open:rotate-180">
+                                    <ChevronDown size={16} />
+                                </span>
+                            </summary>
+                            <div className="mt-3 text-xs leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-4 font-mono relative">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-gray-200/60 pb-2 mb-3">
+                                    <span className="font-sans font-semibold text-gray-800">สามารถคัดลอกข้อความด้านล่างส่งให้ AI เช่น ChatGPT, Gemini, Claude เพื่อให้ออกข้อสอบและสร้างไฟล์ CSV ที่ถูกต้องได้ทันที:</span>
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyPrompt}
+                                        className="shrink-0 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition flex items-center gap-1.5 shadow-sm"
+                                    >
+                                        {promptCopied ? <CheckCircle size={14} className="text-green-600 animate-pulse" /> : <Copy size={14} />}
+                                        {promptCopied ? 'คัดลอกแล้ว!' : 'คัดลอก Prompt'}
+                                    </button>
+                                </div>
+                                <pre className="whitespace-pre-wrap font-mono bg-white p-3 border border-gray-200 rounded text-[11px] text-gray-700 leading-5 select-all">
+                                    {AI_CSV_PROMPT}
+                                </pre>
+                            </div>
+                        </details>
                     </div>
                 </div>
 
