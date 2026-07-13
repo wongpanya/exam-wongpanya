@@ -15,6 +15,18 @@ const examSessionSchema = new mongoose.Schema({
         type: Number,
         default: 10, // seconds
     },
+    qrRefreshEnabled: {
+        type: Boolean,
+        default: true,
+    },
+    activeQrToken: {
+        type: String,
+        default: null,
+    },
+    autoStopAt: {
+        type: Date,
+        default: null,
+    },
     cheatConfig: {
         tabSwitch: { type: Boolean, default: true },
         windowBlur: { type: Boolean, default: true },
