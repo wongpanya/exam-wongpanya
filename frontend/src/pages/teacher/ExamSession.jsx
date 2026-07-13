@@ -22,11 +22,13 @@ const ExamSession = () => {
     // Settings (shown before starting)
     const [showSettings, setShowSettings] = useState(true);
     const [rotateInterval, setRotateInterval] = useState(10);
+    const [qrRefreshEnabled, setQrRefreshEnabled] = useState(true);
     const [shuffleQuestions, setShuffleQuestions] = useState(false);
 
     const [maxCheatEvents, setMaxCheatEvents] = useState(1);
     const [refreshDisabled, setRefreshDisabled] = useState(false);
     const [codeVisible, setCodeVisible] = useState(false);
+    const [linkCopied, setLinkCopied] = useState(false);
 
     const qrTimerRef = useRef(null);
     const countdownRef = useRef(null);
@@ -45,11 +47,11 @@ const ExamSession = () => {
             const tokenStr = typeof data.token === 'object' ? JSON.stringify(data.token) : data.token;
             setQrData(tokenStr);
             setShortCode(data.shortCode || '');
-            setQrCountdown(rotateInterval);
+            setQrCountdown(qrRefreshEnabled ? rotateInterval : 0);
         } catch (err) {
             console.error('QR fetch failed:', err);
         }
-    }, [id, rotateInterval]);
+    }, [id, rotateInterval, qrRefreshEnabled]);
 
     const fetchStudents = useCallback(async () => {
         try {
@@ -81,6 +83,7 @@ const ExamSession = () => {
                     // Session already exists, skip settings
                     setSession(statusRes.data); // Backend returns the session object directly
                     setRotateInterval(statusRes.data.qrRotateInterval || 10);
+                    setQrRefreshEnabled(statusRes.data.qrRefreshEnabled !== false);
                     setShuffleQuestions(statusRes.data.shuffleQuestions || false);
                     setMaxCheatEvents(statusRes.data.maxCheatEvents || 1);
                     setShowSettings(false);
@@ -98,11 +101,19 @@ const ExamSession = () => {
     }, [id]);
 
     const handleStartSession = async () => {
+        const confirmed = await showConfirm({
+            title: 'เริ่ม session สอบ',
+            message: `การสอบจะปิดอัตโนมัติเมื่อครบ ${exam?.durationMin || 0} นาที (เผื่อเวลาส่งคำตอบ 30 วินาที) และนักเรียนจะเข้าสอบต่อไม่ได้`,
+            confirmText: 'เริ่มสอบ',
+            variant: 'warning',
+        });
+        if (!confirmed) return;
+
         setLoading(true);
         try {
             const { data } = await api.post(
                 `/exam-sessions/${id}/start`,
-                { qrRotateInterval: rotateInterval, shuffleQuestions, maxCheatEvents }
+                { qrRotateInterval: rotateInterval, qrRefreshEnabled, shuffleQuestions, maxCheatEvents }
             );
             setSession(data);
             setShowSettings(false);
@@ -117,7 +128,7 @@ const ExamSession = () => {
 
     // QR rotation timer
     useEffect(() => {
-        if (!session || session.status === 'ended' || showSettings) return;
+        if (!session || session.status === 'ended' || showSettings || !session.qrRefreshEnabled) return;
 
         qrTimerRef.current = setInterval(() => {
             fetchQR();
@@ -155,17 +166,24 @@ const ExamSession = () => {
 
         socket.on('student-joined', handleStudentJoined);
         socket.on('student-submitted', handleStudentSubmitted);
+        const handleSessionEnded = () => {
+            setSession(prev => ({ ...prev, status: 'ended' }));
+            setQrData('');
+            setShortCode('');
+        };
+        socket.on('session-ended', handleSessionEnded);
 
         return () => {
             socket.off('student-joined', handleStudentJoined);
             socket.off('student-submitted', handleStudentSubmitted);
+            socket.off('session-ended', handleSessionEnded);
             socket.emit('leave-session', session._id);
         };
     }, [session, showSettings]);
 
     // Countdown timer
     useEffect(() => {
-        if (!session || session.status === 'ended' || showSettings) return;
+        if (!session || session.status === 'ended' || showSettings || !session.qrRefreshEnabled) return;
 
         countdownRef.current = setInterval(() => {
             setQrCountdown(prev => (prev > 0 ? prev - 1 : 0));
@@ -194,6 +212,13 @@ const ExamSession = () => {
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to stop exam');
         }
+    };
+
+    const handleCopyJoinLink = async () => {
+        if (!qrData) return;
+        await navigator.clipboard.writeText(`${window.location.origin}/student/join?code=${encodeURIComponent(qrData)}`);
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2000);
     };
 
     if (loading) {
@@ -236,6 +261,23 @@ const ExamSession = () => {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
                     {/* QR Interval */}
                     <div>
+                        <label className="flex items-center gap-3 cursor-pointer mb-4">
+                            <input
+                                type="checkbox"
+                                className="hidden"
+                                checked={qrRefreshEnabled}
+                                onChange={(e) => setQrRefreshEnabled(e.target.checked)}
+                            />
+                            <div className={`relative w-12 h-6 rounded-full transition ${qrRefreshEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                                <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${qrRefreshEnabled ? 'translate-x-6' : ''}`} />
+                            </div>
+                            <div>
+                                <span className="text-sm font-medium text-gray-700">รีเฟรช QR/PIN อัตโนมัติ</span>
+                                <p className="text-xs text-gray-400">ปิดเพื่อใช้ QR, PIN และลิงก์เดิมตลอดเวลาสอบ</p>
+                            </div>
+                        </label>
+                        {qrRefreshEnabled && (
+                            <>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                             ⏱️ ความถี่หมุน QR Code (วินาที)
                         </label>
@@ -256,6 +298,8 @@ const ExamSession = () => {
                         <p className="text-xs text-gray-400 mt-1">
                             ยิ่งหมุนเร็ว ยิ่งปลอดภัย (แนะนำ 10 วินาที)
                         </p>
+                            </>
+                        )}
                     </div>
 
                     {/* Security Auto-Suspend */}
@@ -377,8 +421,11 @@ const ExamSession = () => {
                     <p className="text-gray-500 mt-1">{exam?.title}</p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
                         {shuffleQuestions && <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">🔀 สุ่มข้อ</span>}
-                        <span className="bg-gray-100 px-2 py-0.5 rounded">QR ทุก {rotateInterval}s</span>
+                        <span className="bg-gray-100 px-2 py-0.5 rounded">{session?.qrRefreshEnabled ? `QR ทุก ${rotateInterval}s` : 'QR คงที่'}</span>
                     </div>
+                    {session?.autoStopAt && !isEnded && (
+                        <p className="text-xs text-amber-700 mt-1">ระบบจะปิด session อัตโนมัติ: {new Date(session.autoStopAt).toLocaleString('th-TH')}</p>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <button
@@ -427,16 +474,22 @@ const ExamSession = () => {
                                 )}
                             </div>
 
-                            <div className="mt-4 flex items-center gap-2 text-sm">
+                            {session?.qrRefreshEnabled ? <div className="mt-4 flex items-center gap-2 text-sm">
                                 <Clock size={16} className="text-gray-400" />
                                 <span className="text-gray-500">
                                     QR ใหม่ใน: <span className={`font-bold ${qrCountdown <= 3 ? 'text-red-500' : 'text-indigo-600'}`}>{qrCountdown}</span> วินาที
                                 </span>
-                            </div>
+                            </div> : <p className="mt-4 text-sm text-green-700 font-medium">QR/PIN คงที่จนกว่าระบบจะปิด session อัตโนมัติ</p>}
 
                             <p className="text-xs text-gray-400 mt-2 text-center">
-                                QR หมุนทุก {rotateInterval} วินาที • Token หมดอายุ {rotateInterval + 5} วินาที
+                                {session?.qrRefreshEnabled ? `QR หมุนทุก ${rotateInterval} วินาที • Token หมดอายุ ${rotateInterval + 5} วินาที` : 'ลิงก์และ QR ใช้ได้จนหมดเวลาสอบ'}
                             </p>
+
+                            {!session?.qrRefreshEnabled && (
+                                <button onClick={handleCopyJoinLink} className="mt-3 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium">
+                                    {linkCopied ? 'คัดลอกลิงก์แล้ว' : 'คัดลอกลิงก์เข้าสอบ'}
+                                </button>
+                            )}
 
                             <div className="w-full border-t border-dashed border-gray-100 my-4"></div>
 

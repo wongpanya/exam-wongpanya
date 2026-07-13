@@ -49,6 +49,41 @@ const normalizeFinalAnswers = (exam, answers) => {
     }));
 };
 
+const finishExamSession = async (session, { requestedBy = null } = {}) => {
+    if (!session || session.status === 'ended') return session;
+
+    session.status = 'ended';
+    session.endedAt = Date.now();
+    session.activeShortCode = null;
+    session.previousShortCode = null;
+    session.activeQrToken = null;
+    await session.save();
+
+    cheatTracker.clearSession(session._id.toString());
+
+    const inProgressAttempts = await ExamAttempt.find({
+        session: session._id,
+        status: { $in: ['in-progress', 'suspended'] }
+    });
+
+    if (inProgressAttempts.length > 0) {
+        const examData = await Exam.findById(session.exam);
+        for (const attempt of inProgressAttempts) {
+            attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
+            attempt.status = 'submitted';
+            attempt.submittedAt = Date.now();
+            await attempt.save();
+            await prepareAttemptGrading(attempt._id, {
+                requestedBy: requestedBy || session.createdBy,
+                trigger: 'automatic',
+            });
+        }
+    }
+
+    safeEmit(`session:${session._id}`, 'session-ended', { automatic: Boolean(session.autoStopAt) });
+    return session;
+};
+
 /**
  * Check if a cheat detection type is enabled in session config.
  * If cheatConfig is missing, empty, or has ALL values false (legacy sessions),
@@ -94,7 +129,7 @@ const startExam = asyncHandler(async (req, res) => {
         return res.json(session);
     }
 
-    const { qrRotateInterval, shuffleQuestions, cheatConfig, maxCheatEvents } = req.body;
+    const { qrRotateInterval, qrRefreshEnabled, shuffleQuestions, cheatConfig, maxCheatEvents } = req.body;
 
     // Default all cheat types to enabled if not provided
     const defaultCheatConfig = {
@@ -107,12 +142,17 @@ const startExam = asyncHandler(async (req, res) => {
         forbiddenKeys: true,
     };
 
+    const startedAt = new Date();
+    const autoStopAt = new Date(startedAt.getTime() + (exam.durationMin * 60 * 1000) + 30000);
+
     session = await ExamSession.create({
         exam: exam._id,
         createdBy: req.user._id,
         status: 'active',
-        startedAt: Date.now(),
+        startedAt,
+        autoStopAt,
         qrRotateInterval: qrRotateInterval || 10,
+        qrRefreshEnabled,
         shuffleQuestions: shuffleQuestions || false,
         cheatConfig: cheatConfig && Object.keys(cheatConfig).length > 0 ? cheatConfig : defaultCheatConfig,
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
@@ -140,35 +180,7 @@ const stopExam = asyncHandler(async (req, res) => {
         throw new Error('Not authorized');
     }
 
-    session.status = 'ended';
-    session.endedAt = Date.now();
-    await session.save();
-
-    // Clear in-memory cheat tracker for this session
-    cheatTracker.clearSession(session._id.toString());
-
-    // Finalize attempts. Exact questions are scored immediately; AI essays are queued.
-    const inProgressAttempts = await ExamAttempt.find({
-        session: session._id,
-        status: { $in: ['in-progress', 'suspended'] }
-    });
-
-    if (inProgressAttempts.length > 0) {
-        const examData = await Exam.findById(session.exam);
-
-        for (const attempt of inProgressAttempts) {
-            attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
-            attempt.status = 'submitted';
-            attempt.submittedAt = Date.now();
-            await attempt.save();
-            await prepareAttemptGrading(attempt._id, {
-                requestedBy: req.user._id,
-                trigger: 'automatic',
-            });
-        }
-    }
-
-    safeEmit(`session:${session._id}`, 'session-ended', {});
+    await finishExamSession(session, { requestedBy: req.user._id });
 
     res.json(session);
 });
@@ -183,6 +195,10 @@ const getSessionStatus = asyncHandler(async (req, res) => {
 
     if (!session) {
         return res.json({ status: 'idle' });
+    }
+
+    if (session.status === 'active' && session.autoStopAt && session.autoStopAt <= new Date()) {
+        await finishExamSession(session);
     }
 
     res.json(session);
@@ -200,6 +216,16 @@ const getQRToken = asyncHandler(async (req, res) => {
     if (!session) {
         res.status(404);
         throw new Error('No active session');
+    }
+
+    if (session.autoStopAt && session.autoStopAt <= new Date()) {
+        await finishExamSession(session);
+        res.status(400);
+        throw new Error('Exam session has ended');
+    }
+
+    if (!session.qrRefreshEnabled && session.activeQrToken) {
+        return res.json({ token: session.activeQrToken, shortCode: session.activeShortCode });
     }
 
     // Generate unique 6-digit short code
@@ -222,11 +248,14 @@ const getQRToken = asyncHandler(async (req, res) => {
     }
 
     session.activeShortCode = shortCode;
-    session.shortCodeExpiresAt = new Date(Date.now() + (session.qrRotateInterval + 5) * 1000);
-    await session.save();
+    const expirySeconds = session.qrRefreshEnabled
+        ? session.qrRotateInterval + 5
+        : Math.max(1, Math.ceil((session.autoStopAt.getTime() - Date.now()) / 1000));
+    session.shortCodeExpiresAt = new Date(Date.now() + expirySeconds * 1000);
 
-    // Generate a short-lived token signed with secret
-    const token = generateQRToken(req.params.examId, QR_SECRET);
+    const token = generateQRToken(req.params.examId, QR_SECRET, expirySeconds);
+    session.activeQrToken = token;
+    await session.save();
 
     res.json({ token, shortCode });
 });
@@ -1181,6 +1210,14 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
 
     res.status(201).json({ inserted: docs.length, suspendStatus });
 });
+
+// Sessions also close while no teacher page is open.  The database query makes
+// this recover after a server restart without relying on an in-memory timeout.
+setInterval(() => {
+    ExamSession.find({ status: 'active', autoStopAt: { $lte: new Date() } })
+        .then(sessions => Promise.all(sessions.map(finishExamSession)))
+        .catch(error => console.error('Automatic exam session close failed:', error.message));
+}, 10000).unref();
 
 module.exports = {
     startExam,

@@ -8,6 +8,7 @@ const answerSchema = z.object({
 
 const startSessionSchema = z.object({
     qrRotateInterval: z.number().min(5).max(60).default(10),
+    qrRefreshEnabled: z.boolean().default(true),
     shuffleQuestions: z.boolean().default(false),
     maxCheatEvents: z.number().min(0).max(100).default(1),
     cheatConfig: z.object({
