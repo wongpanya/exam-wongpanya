@@ -182,7 +182,7 @@ const ExamAttempts = () => {
         if (status === 'pending' || status === 'processing') {
             return (
                 <div>
-                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><Sparkles size={12} /> AI กำลังตรวจ</span>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><Sparkles size={12} /> กำลังตรวจ</span>
                     {questionList(['pending', 'processing']) && <p className="mt-1 text-xs text-blue-700">{questionList(['pending', 'processing'])}</p>}
                 </div>
             );

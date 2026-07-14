@@ -46,7 +46,7 @@ const StudentHistory = () => {
 
     const getScoreContent = (attempt) => {
         if (['pending', 'processing'].includes(attempt.gradingStatus)) {
-            return <span className="text-blue-600 text-sm font-medium">AI กำลังตรวจ</span>;
+            return <span className="text-blue-600 text-sm font-medium">กำลังตรวจ</span>;
         }
         if (attempt.gradingStatus === 'needs-review') {
             return <span className="text-amber-600 text-sm font-medium">รออาจารย์ยืนยัน</span>;

@@ -387,7 +387,7 @@ const TakeExam = () => {
                         {awaitingGrade && (
                             <div>
                                 <Clock className="mx-auto text-indigo-500 mb-2" size={32} />
-                                <p className="font-semibold text-gray-900">กำลังตรวจคำตอบอัตนัยด้วย AI</p>
+                                <p className="font-semibold text-gray-900">กำลังตรวจคำตอบอัตนัย</p>
                                 <p className="text-sm text-gray-500 mt-1">ระบบรับคำตอบแล้ว คะแนนจะแสดงเมื่อการตรวจเสร็จ</p>
                             </div>
                         )}
