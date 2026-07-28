@@ -11,6 +11,17 @@ const { getIO } = require('../config/socket');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
 
+const normalizeAnswer = (answer) => String(answer || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
+const answersMatch = (selectedAnswer, correctAnswer) => (
+    normalizeAnswer(selectedAnswer) === normalizeAnswer(correctAnswer)
+);
+
 const safeEmit = (room, event, data) => {
     try {
         getIO().to(room).emit(event, data);
@@ -47,7 +58,7 @@ const finishExamSession = async (session) => {
             let score = 0;
             for (const answer of attempt.answers || []) {
                 const question = correctMap.get(answer.questionId);
-                if (question && String(answer.selectedAnswer) === String(question.correct)) {
+                if (question && answersMatch(answer.selectedAnswer, question.correct)) {
                     score += question.points;
                 }
             }
@@ -618,10 +629,7 @@ const submitExam = asyncHandler(async (req, res) => {
     attempt.answers.forEach(ans => {
         const qInfo = correctMap.get(ans.questionId);
         if (qInfo) {
-            // Simple string comparison for now. 
-            // For multiple choice, it's exact match index (0,1,2,3) usually stored as number or string
-            // Assuming string/number equality
-            if (String(ans.selectedAnswer) === String(qInfo.correct)) {
+            if (answersMatch(ans.selectedAnswer, qInfo.correct)) {
                 score += qInfo.points;
             }
         }

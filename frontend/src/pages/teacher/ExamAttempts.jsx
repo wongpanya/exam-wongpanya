@@ -103,7 +103,8 @@ const ExamAttempts = () => {
             const questionAnswers = examDetails?.questions?.map(q => {
                 const studentAnswer = a.answers?.find(ans => ans.questionId === q.questionId);
                 if (!studentAnswer || !studentAnswer.selectedAnswer) return '-';
-                return studentAnswer.selectedAnswer === q.correctAnswer ? '1' : '0';
+                const normalizeAnswer = (answer) => String(answer || '').split(',').filter(Boolean).sort().join(',');
+                return normalizeAnswer(studentAnswer.selectedAnswer) === normalizeAnswer(q.correctAnswer) ? '1' : '0';
             }) || [];
 
             return [...baseRow, ...questionAnswers].join(',');

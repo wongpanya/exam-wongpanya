@@ -231,21 +231,24 @@ const ExamDetail = () => {
                         </div>
 
                         <div className="space-y-2 ml-2">
-                            {q.choices.map((choice) => (
+                            {q.choices.map((choice) => {
+                                const isCorrect = String(q.correctAnswer || '').split(',').includes(choice.value);
+                                return (
                                 <div
                                     key={choice.value}
-                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${choice.value === q.correctAnswer
+                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${isCorrect
                                         ? 'bg-green-50 border border-green-200 text-green-800'
                                         : 'bg-gray-50 text-gray-700'
                                         }`}
                                 >
                                     <span className="font-medium w-6">{choice.value.toUpperCase()}.</span>
                                     <span>{choice.label}</span>
-                                    {choice.value === q.correctAnswer && (
+                                    {isCorrect && (
                                         <CheckCircle size={16} className="text-green-600 ml-auto flex-shrink-0" />
                                     )}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 ))}

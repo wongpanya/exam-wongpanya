@@ -555,7 +555,13 @@ const CheatMonitor = () => {
                                     ) : (
                                         studentLogs.exam.questions.map((q, i) => {
                                             const studentAnswer = studentLogs.answers?.find(a => a.questionId === q.questionId)?.selectedAnswer;
-                                            const isCorrect = String(studentAnswer) === String(q.correctAnswer);
+                                            const normalizeAnswer = (answer) => String(answer || '').split(',').filter(Boolean).sort().join(',');
+                                            const answerLabels = (answer) => String(answer || '')
+                                                .split(',')
+                                                .filter(Boolean)
+                                                .map(value => q.choices.find(choice => choice.value === value)?.label || value)
+                                                .join(', ');
+                                            const isCorrect = normalizeAnswer(studentAnswer) === normalizeAnswer(q.correctAnswer);
                                             const hasAnswered = studentAnswer !== undefined && studentAnswer !== '';
 
                                             return (
@@ -576,7 +582,7 @@ const CheatMonitor = () => {
                                                             <span className="min-w-[60px] text-gray-500">ตอบ:</span>
                                                             <span className={`font-medium ${isCorrect ? 'text-green-700' : 'text-red-600'}`}>
                                                                 {hasAnswered ? (
-                                                                    q.choices.find(c => c.value === studentAnswer)?.label || studentAnswer
+                                                                    answerLabels(studentAnswer)
                                                                 ) : (
                                                                     <span className="text-gray-400 italic">ไม่ตอบ</span>
                                                                 )}
@@ -586,7 +592,7 @@ const CheatMonitor = () => {
                                                             <div className="flex items-start gap-2">
                                                                 <span className="min-w-[60px] text-gray-500">เฉลย:</span>
                                                                 <span className="font-medium text-green-700">
-                                                                    {q.choices.find(c => c.value === q.correctAnswer)?.label || q.correctAnswer}
+                                                                    {answerLabels(q.correctAnswer)}
                                                                 </span>
                                                             </div>
                                                         )}

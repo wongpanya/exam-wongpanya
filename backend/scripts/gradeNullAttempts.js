@@ -5,6 +5,13 @@ const ExamAttempt = require('../src/models/examAttemptModel');
 
 dotenv.config();
 
+const normalizeAnswer = (answer) => String(answer || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
 async function run() {
     try {
         if (!process.env.MONGODB_URL) {
@@ -56,7 +63,7 @@ async function run() {
             attempt.answers.forEach(ans => {
                 const qInfo = correctMap.get(ans.questionId);
                 if (qInfo) {
-                    if (String(ans.selectedAnswer) === String(qInfo.correct)) {
+                    if (normalizeAnswer(ans.selectedAnswer) === normalizeAnswer(qInfo.correct)) {
                         score += qInfo.points;
                     }
                 }
