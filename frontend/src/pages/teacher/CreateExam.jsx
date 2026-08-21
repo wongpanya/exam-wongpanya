@@ -429,22 +429,35 @@ const CreateExam = () => {
     const changeQuestionType = (qIndex, type) => {
         const updated = [...questions];
         const current = updated[qIndex];
-        updated[qIndex] = type === 'text'
-            ? {
+        if (type === 'text') {
+            updated[qIndex] = {
                 ...current,
                 type: 'text',
                 choices: [],
                 correctAnswer: '',
                 gradingMode: 'ai',
                 aiGrading: current.aiGrading || createDefaultAiGrading(current.points),
-            }
-            : {
+            };
+        } else if (type === 'checkbox') {
+            const selectedAnswers = String(current.correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex] = {
+                ...current,
+                type: 'checkbox',
+                choices: current.choices?.length >= 2 ? current.choices : createDefaultQuestion().choices,
+                correctAnswer: [...new Set(selectedAnswers)].sort().join(','),
+                gradingMode: 'exact',
+            };
+        } else {
+            // radio
+            const selectedAnswers = String(current.correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex] = {
                 ...current,
                 type: 'radio',
                 choices: current.choices?.length >= 2 ? current.choices : createDefaultQuestion().choices,
-                correctAnswer: '',
+                correctAnswer: selectedAnswers[0] || '',
                 gradingMode: 'exact',
             };
+        }
         setQuestions(updated);
     };
 
@@ -770,11 +783,12 @@ const CreateExam = () => {
                                     <select
                                         value={q.type}
                                         onChange={(e) => changeQuestionType(qIndex, e.target.value)}
-                                        className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                                        className="px-2.5 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-gray-700"
                                         aria-label={`ประเภทคำถามข้อที่ ${qIndex + 1}`}
                                     >
-                                        <option value="radio">ปรนัย</option>
-                                        <option value="text">อัตนัย (AI)</option>
+                                        <option value="radio">ปรนัย (เลือกคำตอบเดียว)</option>
+                                        <option value="checkbox">ปรนัยหลายคำตอบ (Checkbox)</option>
+                                        <option value="text">อัตนัย (ตรวจด้วย AI)</option>
                                     </select>
                                     <div className="flex items-center gap-1">
                                         <label className="text-xs text-gray-500">คะแนน:</label>
@@ -803,19 +817,6 @@ const CreateExam = () => {
                                         <Trash2 size={18} />
                                     </button>
                                 </div>
-                            </div>
-
-                            {/* Question type */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">รูปแบบคำตอบ</label>
-                                <select
-                                    value={q.type}
-                                    onChange={(e) => updateQuestion(qIndex, 'type', e.target.value)}
-                                    className="w-full sm:w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
-                                >
-                                    <option value="radio">ปรนัย — เลือกคำตอบเดียว</option>
-                                    <option value="checkbox">Checkbox — เลือกได้ 1 ข้อหรือหลายข้อ</option>
-                                </select>
                             </div>
 
                             {/* Prompt */}
