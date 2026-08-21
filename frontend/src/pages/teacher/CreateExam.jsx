@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
-import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
 import AIGradingConfig from '../../components/AIGradingConfig';
 
@@ -51,10 +51,10 @@ const normalizeImportedQuestion = (question) => {
 // --- CSV Template & Parser ---
 const CSV_TEMPLATE_ROWS = [
     ['QuestionType', 'Prompt', 'Option1', 'Option2', 'Option3', 'Option4', 'CorrectAnswer', 'Points', 'GroundTruths', 'Rubrics', 'KeyConcepts'],
-    ['ปรนัย', 'เมืองหลวงของไทยคือ?', 'เชียงใหม่', 'กรุงเทพ', 'ภูเก็ต', 'ขอนแก่น', '2', '1', '', '', ''],
-    ['checkbox', 'ข้อใดเป็นแม่สี?', 'แดง', 'เขียว', 'น้ำเงิน', 'เหลือง', '1|3|4', '2', '', '', ''],
-    ['อัตนัย', 'อธิบายกระบวนการสังเคราะห์ด้วยแสงโดยสังเขป', '', '', '', '', '', '5', '["พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลและออกซิเจน","การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้แสง น้ำ และคาร์บอนไดออกไซด์ในการสร้างอาหาร พร้อมปล่อยออกซิเจน"]', '[{"title":"สารตั้งต้นและพลังงาน","description":"กล่าวถึงพลังงานแสง น้ำ และคาร์บอนไดออกไซด์ที่ใช้ในกระบวนการสังเคราะห์ด้วยแสง","score":3},{"title":"ผลผลิตของกระบวนการ","description":"กล่าวถึงน้ำตาลหรืออาหารของพืช และออกซิเจนซึ่งเป็นผลผลิตของกระบวนการ","score":2}]', '["พลังงานแสง","น้ำ","คาร์บอนไดออกไซด์","น้ำตาล","ออกซิเจน","การสังเคราะห์ด้วยแสง"]'],
-    ['อัตนัย', 'อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning', '', '', '', '', '', '10', '["Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้จากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น", "Deep Learning สามารถเรียนรู้ Feature จากข้อมูลได้อัตโนมัติ ขณะที่ Machine Learning หลายวิธีต้องอาศัย Feature Engineering", "Deep Learning เหมาะกับข้อมูลขนาดใหญ่และงานที่ซับซ้อน เช่น Computer Vision และ Speech Recognition"]', '[{"title":"อธิบายความสัมพันธ์ระหว่าง AI, ML และ DL","description":"อธิบายว่า Deep Learning เป็นส่วนหนึ่งของ Machine Learning และ Machine Learning เป็นส่วนหนึ่งของ AI","score":3},{"title":"อธิบาย Neural Network","description":"กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น","score":3},{"title":"เปรียบเทียบความแตกต่าง","description":"อธิบาย Feature Engineering และ Feature Learning","score":2},{"title":"ยกตัวอย่างการใช้งาน","description":"ยกตัวอย่างงานของ Deep Learning อย่างน้อย 1 ตัวอย่าง","score":2}]', '["Machine Learning", "Deep Learning", "Artificial Intelligence", "Neural Network", "Feature Learning", "Feature Engineering", "Computer Vision"]'],
+    ['ปรนัย', 'เมืองหลวงของประเทศไทยคือเมืองใด?', 'เชียงใหม่', 'กรุงเทพมหานคร', 'ภูเก็ต', 'ขอนแก่น', '2', '1', '', '', ''],
+    ['checkbox', 'ข้อใดจัดเป็นสีแม่สี (เลือกได้หลายข้อ)?', 'แดง', 'เขียว', 'น้ำเงิน', 'เหลือง', '1|3|4', '2', '', '', ''],
+    ['อัตนัย', 'อธิบายกระบวนการสังเคราะห์ด้วยแสงของพืชโดยสังเขป', '', '', '', '', '', '5', '["พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลกลูโคสและออกซิเจน","การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้คลอโรฟิลล์ดูดกลืนแสงเพื่อเปลี่ยนน้ำและก๊าซคาร์บอนไดออกไซด์เป็นอาหารและออกซิเจน"]', '[{"title":"สารตั้งต้นและพลังงาน","description":"กล่าวถึงพลังงานแสง คลอโรฟิลล์ น้ำ และคาร์บอนไดออกไซด์","score":3},{"title":"ผลผลิตของกระบวนการ","description":"กล่าวถึงน้ำตาลกลูโคสและก๊าซออกซิเจน","score":2}]', '["พลังงานแสง","น้ำ","คาร์บอนไดออกไซด์","น้ำตาลกลูโคส","ออกซิเจน","คลอโรฟิลล์","การสังเคราะห์ด้วยแสง"]'],
+    ['อัตนัย', 'อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning', '', '', '', '', '', '10', '["Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้รูปแบบจากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น (Deep Neural Networks)","Deep Learning สามารถเรียนรู้ Feature Representation ได้โดยอัตโนมัติจากข้อมูลดิบ ขณะที่ Machine Learning ทั่วไปต้องอาศัยการสกัด Feature Engineering โดยมนุษย์","Deep Learning ต้องการข้อมูลขนาดใหญ่และพลังประมวลผลสูง เหมาะกับงานด้าน Computer Vision และ Natural Language Processing"]', '[{"title":"ความสัมพันธ์ระดับแนวคิด","description":"อธิบายความสัมพันธ์ว่า Deep Learning เป็นซับเซตของ Machine Learning","score":3},{"title":"โครงสร้างการทำงาน","description":"กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น (Deep Neural Networks)","score":3},{"title":"Feature Engineering","description":"เปรียบเทียบการสกัด Feature อัตโนมัติกับ Manual Feature Engineering","score":2},{"title":"การประยุกต์ใช้งานและข้อจำกัด","description":"ยกตัวอย่างงานที่เหมาะสมและทรัพยากรที่ต้องใช้ เช่น ข้อมูลขนาดใหญ่","score":2}]', '["Machine Learning","Deep Learning","Artificial Intelligence","Neural Network","Feature Learning","Feature Engineering","Computer Vision"]'],
 ];
 
 const escapeCSVCell = value => {
@@ -268,49 +268,6 @@ function parseCSVToQuestions(csvText) {
     return questions;
 }
 
-const AI_CSV_PROMPT = `คุณคือผู้เชี่ยวชาญการออกข้อสอบ จงสร้างคำถามข้อสอบในรูปแบบไฟล์ CSV ที่มีหัวคอลัมน์ (Headers) ดังต่อไปนี้:
-
-QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points,GroundTruths,Rubrics,KeyConcepts
-
-**กติกาโครงสร้างคอลัมน์:**
-
-1. GroundTruths (สำหรับอัตนัยเท่านั้น):
-- บันทึกในรูปแบบ JSON Array ของ String เช่น:
-  ["แนวคำตอบที่ 1", "แนวคำตอบที่ 2"]
-- กำหนดได้ 1 ถึง 10 แนวคำตอบ
-- ห้ามคัดลอกรายละเอียดของ Rubrics มาใส่ในนี้โดยตรง
-
-2. Rubrics (สำหรับอัตนัยเท่านั้น):
-- บันทึกในรูปแบบ JSON Array ของ Object เกณฑ์ประเมินย่อย เช่น:
-  [{"title":"ชื่อเกณฑ์ 1","description":"คำอธิบายเกณฑ์ 1","score":3},{"title":"ชื่อเกณฑ์ 2","description":"คำอธิบายเกณฑ์ 2","score":2}]
-- สามารถเพิ่มเกณฑ์ประเมินย่อยได้ไม่จำกัด (แนะนำ 2 ถึง 10 เกณฑ์ต่อข้อ)
-- คะแนนเต็มของ Rubrics ทุกเกณฑ์รวมกัน (score) ต้องเท่ากับคะแนนดิบข้อสอบในคอลัมน์ Points เสมอ
-- ห้ามคัดลอกรายละเอียดของ GroundTruths มาใส่ในนี้โดยตรง
-
-3. KeyConcepts (สำหรับอัตนัยเท่านั้น):
-- บันทึกในรูปแบบ JSON Array ของคำสำคัญหรือคีย์เวิร์ด เช่น:
-  ["คำสำคัญ 1", "คำสำคัญ 2", "คำสำคัญ 3"]
-- แนะนำอย่างน้อย 3 คำสำคัญต่อข้อ
-- ต้องเป็นคำหรือวลีสั้นๆ เท่านั้น ห้ามเขียนเป็นประโยคยาวๆ
-
-4. สำหรับข้อสอบปรนัย (Multiple-choice):
-- คอลัมน์ Option1-4 ต้องใส่ตัวเลือกช้อยส์ 1-4
-- CorrectAnswer ต้องใส่เป็นตัวเลขตัวเลือกที่ถูกต้อง เช่น "2" (หมายถึง Option2)
-- คอลัมน์ GroundTruths, Rubrics, KeyConcepts ต้องปล่อยว่างไว้เสมอ
-
-5. การจัดเก็บ JSON ใน CSV:
-- คอลัมน์ที่เป็น JSON Array ต้องมีโครงสร้างที่ถูกต้องตามหลัก JSON Specification
-- ต้องจัดรูปแบบข้อความและ Escape เครื่องหมายฟันหนูคู่ (Double Quotes) ใน JSON ให้เป็นเครื่องหมายฟันหนูคู่สองอันประชิดกัน ("") ตามมาตรฐานไฟล์ CSV (RFC 4180)
-
----
-
-**ตัวอย่างข้อมูลไฟล์ CSV ที่ถูกต้อง:**
-
-QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points,GroundTruths,Rubrics,KeyConcepts
-ปรนัย,"เมืองหลวงของไทยคือ?","เชียงใหม่","กรุงเทพ","ภูเก็ต","ขอนแก่น","2",1,,,
-อัตนัย,"อธิบายกระบวนการสังเคราะห์ด้วยแสงโดยสังเขป",,,,,,5,"[""พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลและออกซิเจน"",""การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้แสง น้ำ และคาร์บอนไดออกไซด์ในการสร้างอาหาร พร้อมปล่อยออกซิเจน""]","[{""title"":""สารตั้งต้นและพลังงาน"",""description"":""กล่าวถึงพลังงานแสง น้ำ และคาร์บอนไดออกไซด์ที่ใช้ในกระบวนการสังเคราะห์ด้วยแสง"",""score"":3},{""title"":""ผลผลิตของกระบวนการ"",""description"":""กล่าวถึงน้ำตาลหรืออาหารของพืช และออกซิเจนซึ่งเป็นผลผลิตของกระบวนการ"",""score"":2}]","[""พลังงานแสง"",""น้ำ"",""คาร์บอนไดออกไซด์"",""น้ำตาล"",""ออกซิเจน"",""การสังเคราะห์ด้วยแสง""]"
-อัตนัย,"อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning",,,,,,10,"[""Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้จากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น"",""Deep Learning สามารถเรียนรู้ Feature จากข้อมูลได้อัตโนมัติ ขณะที่ Machine Learning หลายวิธีต้องอาศัย Feature Engineering"",""Deep Learning เหมาะกับข้อมูลขนาดใหญ่และงานที่ซับซ้อน เช่น Computer Vision และ Speech Recognition""]","[{""title"":""อธิบายความสัมพันธ์ระหว่าง AI, ML และ DL"",""description"":""อธิบายว่า Deep Learning เป็นส่วนหนึ่งของ Machine Learning และ Machine Learning เป็นส่วนหนึ่งของ AI"",""score"":3},{""title"":""อธิบาย Neural Network"",""description"":""กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น"",""score"":3},{""title"":""เปรียบเทียบความแตกต่าง"",""description"":""อธิบายความแตกต่างด้าน Feature Engineering และ Feature Learning"",""score"":2},{""title"":""ยกตัวอย่างการใช้งาน"",""description"":""ยกตัวอย่างงานของ Deep Learning อย่างน้อย 1 ตัวอย่าง"",""score"":2}]","[""Machine Learning"",""Deep Learning"",""Artificial Intelligence"",""Neural Network"",""Feature Learning"",""Feature Engineering"",""Computer Vision""]"`;
-
 const CreateExam = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -318,13 +275,6 @@ const CreateExam = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [providerSettings, setProviderSettings] = useState({ primary: 'gemini', fallbacks: [], providers: [] });
-    const [promptCopied, setPromptCopied] = useState(false);
-
-    const handleCopyPrompt = () => {
-        navigator.clipboard.writeText(AI_CSV_PROMPT);
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-    };
 
     // Check for imported questions from AI Generator
     const importedQuestions = location.state?.importedQuestions;
@@ -737,34 +687,6 @@ const CreateExam = () => {
                                 <Upload size={16} /> อัปโหลด CSV
                             </button>
                         </div>
-                    </div>
-
-                    {/* AI Generation Guide (Collapsible) */}
-                    <div className="border-t border-gray-100 pt-4">
-                        <details className="group">
-                            <summary className="flex items-center justify-between cursor-pointer text-sm font-semibold text-indigo-600 hover:text-indigo-700 select-none">
-                                <span>💡 คู่มือโครงสร้างและ Prompt สำหรับสั่ง AI ออกข้อสอบ (AI CSV Generation Specification)</span>
-                                <span className="transition group-open:rotate-180">
-                                    <ChevronDown size={16} />
-                                </span>
-                            </summary>
-                            <div className="mt-3 text-xs leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-4 font-mono relative">
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-gray-200/60 pb-2 mb-3">
-                                    <span className="font-sans font-semibold text-gray-800">สามารถคัดลอกข้อความด้านล่างส่งให้ AI เช่น ChatGPT, Gemini, Claude เพื่อให้ออกข้อสอบและสร้างไฟล์ CSV ที่ถูกต้องได้ทันที:</span>
-                                    <button
-                                        type="button"
-                                        onClick={handleCopyPrompt}
-                                        className="shrink-0 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition flex items-center gap-1.5 shadow-sm"
-                                    >
-                                        {promptCopied ? <CheckCircle size={14} className="text-green-600 animate-pulse" /> : <Copy size={14} />}
-                                        {promptCopied ? 'คัดลอกแล้ว!' : 'คัดลอก Prompt'}
-                                    </button>
-                                </div>
-                                <pre className="whitespace-pre-wrap font-mono bg-white p-3 border border-gray-200 rounded text-[11px] text-gray-700 leading-5 select-all">
-                                    {AI_CSV_PROMPT}
-                                </pre>
-                            </div>
-                        </details>
                     </div>
                 </div>
 
