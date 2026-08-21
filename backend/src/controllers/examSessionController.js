@@ -15,6 +15,17 @@ const { prepareAttemptGrading } = require('../services/grading/gradingService');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
 
+const normalizeAnswer = (answer) => String(answer || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
+const answersMatch = (selectedAnswer, correctAnswer) => (
+    normalizeAnswer(selectedAnswer) === normalizeAnswer(correctAnswer)
+);
+
 const safeEmit = (room, event, data) => {
     try {
         getIO().to(room).emit(event, data);

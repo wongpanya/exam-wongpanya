@@ -52,6 +52,7 @@ const normalizeImportedQuestion = (question) => {
 const CSV_TEMPLATE_ROWS = [
     ['QuestionType', 'Prompt', 'Option1', 'Option2', 'Option3', 'Option4', 'CorrectAnswer', 'Points', 'GroundTruths', 'Rubrics', 'KeyConcepts'],
     ['ปรนัย', 'เมืองหลวงของไทยคือ?', 'เชียงใหม่', 'กรุงเทพ', 'ภูเก็ต', 'ขอนแก่น', '2', '1', '', '', ''],
+    ['checkbox', 'ข้อใดเป็นแม่สี?', 'แดง', 'เขียว', 'น้ำเงิน', 'เหลือง', '1|3|4', '2', '', '', ''],
     ['อัตนัย', 'อธิบายกระบวนการสังเคราะห์ด้วยแสงโดยสังเขป', '', '', '', '', '', '5', '["พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลและออกซิเจน","การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้แสง น้ำ และคาร์บอนไดออกไซด์ในการสร้างอาหาร พร้อมปล่อยออกซิเจน"]', '[{"title":"สารตั้งต้นและพลังงาน","description":"กล่าวถึงพลังงานแสง น้ำ และคาร์บอนไดออกไซด์ที่ใช้ในกระบวนการสังเคราะห์ด้วยแสง","score":3},{"title":"ผลผลิตของกระบวนการ","description":"กล่าวถึงน้ำตาลหรืออาหารของพืช และออกซิเจนซึ่งเป็นผลผลิตของกระบวนการ","score":2}]', '["พลังงานแสง","น้ำ","คาร์บอนไดออกไซด์","น้ำตาล","ออกซิเจน","การสังเคราะห์ด้วยแสง"]'],
     ['อัตนัย', 'อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning', '', '', '', '', '', '10', '["Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้จากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น", "Deep Learning สามารถเรียนรู้ Feature จากข้อมูลได้อัตโนมัติ ขณะที่ Machine Learning หลายวิธีต้องอาศัย Feature Engineering", "Deep Learning เหมาะกับข้อมูลขนาดใหญ่และงานที่ซับซ้อน เช่น Computer Vision และ Speech Recognition"]', '[{"title":"อธิบายความสัมพันธ์ระหว่าง AI, ML และ DL","description":"อธิบายว่า Deep Learning เป็นส่วนหนึ่งของ Machine Learning และ Machine Learning เป็นส่วนหนึ่งของ AI","score":3},{"title":"อธิบาย Neural Network","description":"กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น","score":3},{"title":"เปรียบเทียบความแตกต่าง","description":"อธิบาย Feature Engineering และ Feature Learning","score":2},{"title":"ยกตัวอย่างการใช้งาน","description":"ยกตัวอย่างงานของ Deep Learning อย่างน้อย 1 ตัวอย่าง","score":2}]', '["Machine Learning", "Deep Learning", "Artificial Intelligence", "Neural Network", "Feature Learning", "Feature Engineering", "Computer Vision"]'],
 ];
@@ -135,6 +136,9 @@ function parseCSVToQuestions(csvText) {
 
         const type = rawType?.trim();
         const isText = type === 'อัตนัย' || type?.toLowerCase() === 'text';
+        const normalizedType = type?.toLowerCase();
+        const isCheckbox = ['checkbox', 'check box', 'หลายคำตอบ', 'เลือกได้หลายข้อ', 'เช็กบ็อกซ์', 'เช็คบ็อกซ์']
+            .includes(normalizedType);
 
         if (isText) {
             let groundTruths = [];
@@ -219,25 +223,37 @@ function parseCSVToQuestions(csvText) {
                 },
             });
         } else {
-            // Multiple-choice (ปรนัย / radio)
+            // Multiple-choice (single answer / checkbox)
             const options = [opt1, opt2, opt3, opt4].filter(o => o && o.trim());
             const choices = options.map((label, idx) => ({
                 value: String.fromCharCode(97 + idx), // a, b, c, d
                 label: label.trim(),
             }));
-            // CorrectAnswer: accept number (1-based) or letter (a,b,c,d)
-            let correctAnswer = '';
-            const ca = rawCorrect?.trim();
-            if (ca) {
-                const num = parseInt(ca, 10);
-                if (!isNaN(num) && num >= 1 && num <= choices.length) {
-                    correctAnswer = String.fromCharCode(97 + num - 1);
-                } else if (/^[a-d]$/i.test(ca)) {
-                    correctAnswer = ca.toLowerCase();
-                }
-            }
+            // CorrectAnswer accepts 1-based numbers or letters.
+            // Checkbox answers can be separated with |, comma, semicolon, or spaces.
+            const answerTokens = String(rawCorrect || '')
+                .split(/[|,;\s]+/)
+                .map(answer => answer.trim())
+                .filter(Boolean);
+            const correctAnswers = answerTokens
+                .map((answer) => {
+                    const num = Number(answer);
+                    if (Number.isInteger(num) && num >= 1 && num <= choices.length) {
+                        return String.fromCharCode(97 + num - 1);
+                    }
+                    if (/^[a-z]$/i.test(answer) && choices.some(choice => choice.value === answer.toLowerCase())) {
+                        return answer.toLowerCase();
+                    }
+                    return null;
+                })
+                .filter(Boolean);
+            const uniqueCorrectAnswers = [...new Set(correctAnswers)].sort();
+            const correctAnswer = isCheckbox
+                ? uniqueCorrectAnswers.join(',')
+                : (uniqueCorrectAnswers[0] || '');
+
             questions.push({
-                type: 'radio',
+                type: isCheckbox ? 'checkbox' : 'radio',
                 prompt: prompt || '',
                 choices,
                 correctAnswer,
@@ -401,6 +417,12 @@ const CreateExam = () => {
     const updateQuestion = (qIndex, field, value) => {
         const updated = [...questions];
         updated[qIndex] = { ...updated[qIndex], [field]: value };
+        if (field === 'type') {
+            const selectedAnswers = String(updated[qIndex].correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex].correctAnswer = value === 'checkbox'
+                ? [...new Set(selectedAnswers)].sort().join(',')
+                : (selectedAnswers[0] || '');
+        }
         setQuestions(updated);
     };
 
@@ -464,9 +486,21 @@ const CreateExam = () => {
 
     const selectCorrectAnswer = (qIndex, value) => {
         const updated = [...questions];
-        updated[qIndex] = { ...updated[qIndex], correctAnswer: value };
+        const question = updated[qIndex];
+        if (question.type === 'checkbox') {
+            const selected = new Set(String(question.correctAnswer || '').split(',').filter(Boolean));
+            if (selected.has(value)) selected.delete(value);
+            else selected.add(value);
+            updated[qIndex] = { ...question, correctAnswer: [...selected].sort().join(',') };
+        } else {
+            updated[qIndex] = { ...question, correctAnswer: value };
+        }
         setQuestions(updated);
     };
+
+    const isCorrectAnswer = (question, value) => (
+        String(question.correctAnswer || '').split(',').includes(value)
+    );
 
     const addChoice = (qIndex) => {
         const updated = [...questions];
@@ -481,15 +515,20 @@ const CreateExam = () => {
     const removeChoice = (qIndex, cIndex) => {
         const updated = [...questions];
         if (updated[qIndex].choices.length <= 2) return;
+        const selectedIndexes = String(updated[qIndex].correctAnswer || '')
+            .split(',')
+            .filter(Boolean)
+            .map(value => updated[qIndex].choices.findIndex(choice => choice.value === value))
+            .filter(index => index >= 0 && index !== cIndex);
         updated[qIndex].choices = updated[qIndex].choices.filter((_, i) => i !== cIndex);
         updated[qIndex].choices = updated[qIndex].choices.map((c, i) => ({
             ...c,
             value: String.fromCharCode(97 + i),
         }));
-        const validValues = updated[qIndex].choices.map(c => c.value);
-        if (!validValues.includes(updated[qIndex].correctAnswer)) {
-            updated[qIndex].correctAnswer = '';
-        }
+        updated[qIndex].correctAnswer = selectedIndexes
+            .map(index => String.fromCharCode(97 + index - (index > cIndex ? 1 : 0)))
+            .sort()
+            .join(',');
         setQuestions(updated);
     };
 
@@ -657,7 +696,10 @@ const CreateExam = () => {
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                         <div>
                             <h2 className="text-lg font-semibold text-gray-900">นำเข้าข้อสอบจาก CSV</h2>
-                            <p className="text-sm text-gray-500 mt-0.5">รองรับปรนัยและอัตนัย AI พร้อม Ground Truth, Rubric และ Key Concepts</p>
+                            <p className="text-sm text-gray-500 mt-0.5">รองรับปรนัย, Checkbox (เลือกได้หลายข้อ) และอัตนัย AI พร้อม Ground Truth, Rubric และ Key Concepts</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                                คำถาม Checkbox ใช้ QuestionType เป็น checkbox และคั่นคำตอบที่ถูกด้วย | เช่น 1|3
+                            </p>
                         </div>
                         <div className="flex items-center gap-2">
                             <button
@@ -763,6 +805,19 @@ const CreateExam = () => {
                                 </div>
                             </div>
 
+                            {/* Question type */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">รูปแบบคำตอบ</label>
+                                <select
+                                    value={q.type}
+                                    onChange={(e) => updateQuestion(qIndex, 'type', e.target.value)}
+                                    className="w-full sm:w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
+                                >
+                                    <option value="radio">ปรนัย — เลือกคำตอบเดียว</option>
+                                    <option value="checkbox">Checkbox — เลือกได้ 1 ข้อหรือหลายข้อ</option>
+                                </select>
+                            </div>
+
                             {/* Prompt */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">คำถาม</label>
@@ -785,23 +840,25 @@ const CreateExam = () => {
                             /* Choices - clickable cards */
                             <div className="space-y-2">
                                 <label className="block text-sm font-medium text-gray-700">
-                                    ตัวเลือก <span className="text-gray-400 font-normal">(คลิกเพื่อเลือกคำตอบที่ถูกต้อง)</span>
+                                    ตัวเลือก <span className="text-gray-400 font-normal">
+                                        ({q.type === 'checkbox' ? 'เลือกคำตอบที่ถูกต้องได้ตั้งแต่ 1 ข้อขึ้นไป' : 'คลิกเพื่อเลือกคำตอบที่ถูกต้อง'})
+                                    </span>
                                 </label>
                                 {q.choices.map((choice, cIndex) => (
                                     <div
                                         key={cIndex}
-                                        className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${q.correctAnswer === choice.value
+                                        className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${isCorrectAnswer(q, choice.value)
                                             ? 'border-green-500 bg-green-50'
                                             : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
                                             }`}
                                         onClick={() => selectCorrectAnswer(qIndex, choice.value)}
                                     >
                                         {/* Correct answer indicator */}
-                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${q.correctAnswer === choice.value
+                                        <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center flex-shrink-0 transition-all ${isCorrectAnswer(q, choice.value)
                                             ? 'bg-green-500 text-white'
                                             : 'bg-gray-200 text-gray-500'
                                             }`}>
-                                            {q.correctAnswer === choice.value ? (
+                                            {isCorrectAnswer(q, choice.value) ? (
                                                 <CheckCircle size={16} />
                                             ) : (
                                                 <span className="text-xs font-bold">{choice.value.toUpperCase()}</span>
@@ -841,7 +898,7 @@ const CreateExam = () => {
 
                             {q.type !== 'text' && q.correctAnswer && (
                                 <p className="text-xs text-green-600 font-medium">
-                                    ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.toUpperCase()}
+                                    ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.split(',').map(value => value.toUpperCase()).join(', ')}
                                 </p>
                             )}
                         </div>

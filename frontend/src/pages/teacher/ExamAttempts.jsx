@@ -100,7 +100,8 @@ const ExamAttempts = () => {
                     const grading = a.gradingResults?.find(result => result.questionId === q.questionId);
                     return grading?.finalScore ?? '-';
                 }
-                return studentAnswer.selectedAnswer === q.correctAnswer ? '1' : '0';
+                const normalizeAnswer = (answer) => String(answer || '').split(',').filter(Boolean).sort().join(',');
+                return normalizeAnswer(studentAnswer.selectedAnswer) === normalizeAnswer(q.correctAnswer) ? '1' : '0';
             }) || [];
 
             return [...baseRow, ...questionAnswers].join(',');

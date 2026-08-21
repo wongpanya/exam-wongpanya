@@ -240,11 +240,21 @@ const TakeExam = () => {
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     };
 
-    const selectAnswer = (questionId, value) => {
+    const selectAnswer = (questionId, value, questionType) => {
         if (suspended) return;
 
         setAnswers(prev => {
-            const updated = { ...prev, [questionId]: value };
+            const updated = { ...prev };
+            if (questionType === 'checkbox') {
+                const selected = new Set(String(prev[questionId] || '').split(',').filter(Boolean));
+                if (selected.has(value)) selected.delete(value);
+                else selected.add(value);
+
+                if (selected.size > 0) updated[questionId] = [...selected].sort().join(',');
+                else delete updated[questionId];
+            } else {
+                updated[questionId] = value;
+            }
             answersRef.current = updated;
             saveToLocalStorage(updated);
 
@@ -619,7 +629,7 @@ const TakeExam = () => {
                                     <textarea
                                         id={`essay-${q.questionId}`}
                                         value={answers[q.questionId] || ''}
-                                        onChange={(event) => selectAnswer(q.questionId, event.target.value)}
+                                        onChange={(event) => selectAnswer(q.questionId, event.target.value, q.type)}
                                         maxLength={MAX_ESSAY_CHARS}
                                         rows={10}
                                         disabled={suspended}
@@ -631,28 +641,38 @@ const TakeExam = () => {
                                     </p>
                                 </div>
                             ) : (
-                            <div className="space-y-2">
-                                {q.choices.map((choice) => (
-                                    <button
-                                        key={choice.value}
-                                        type="button"
-                                        onClick={() => selectAnswer(q.questionId, choice.value)}
-                                        disabled={suspended}
-                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-left transition-all text-sm ${answers[q.questionId] === choice.value
-                                            ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
-                                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700'
-                                            }`}
-                                    >
-                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-xs ${answers[q.questionId] === choice.value
-                                            ? 'bg-indigo-500 text-white'
-                                            : 'bg-gray-200 text-gray-500'
-                                            }`}>
-                                            {choice.value.toUpperCase()}
-                                        </div>
-                                        <span>{choice.label}</span>
-                                    </button>
-                                ))}
-                            </div>
+                                <>
+                                    {q.type === 'checkbox' && (
+                                        <p className="text-xs text-indigo-600 mb-3">เลือกได้หลายคำตอบ</p>
+                                    )}
+                                    <div className="space-y-2">
+                                        {q.choices.map((choice) => {
+                                            const isSelected = q.type === 'checkbox'
+                                                ? String(answers[q.questionId] || '').split(',').includes(choice.value)
+                                                : answers[q.questionId] === choice.value;
+                                            return (
+                                                <button
+                                                    key={choice.value}
+                                                    type="button"
+                                                    onClick={() => selectAnswer(q.questionId, choice.value, q.type)}
+                                                    disabled={suspended}
+                                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-left transition-all text-sm ${isSelected
+                                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
+                                                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700'
+                                                        }`}
+                                                >
+                                                    <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center flex-shrink-0 font-bold text-xs ${isSelected
+                                                        ? 'bg-indigo-500 text-white'
+                                                        : 'bg-gray-200 text-gray-500'
+                                                        }`}>
+                                                        {q.type === 'checkbox' && isSelected ? <CheckCircle size={16} /> : choice.value.toUpperCase()}
+                                                    </div>
+                                                    <span>{choice.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </>
                             )}
                         </div>
                     );

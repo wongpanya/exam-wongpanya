@@ -85,19 +85,22 @@ const EditExam = () => {
             return div.textContent || div.innerText || '';
         };
         const rows = questions.map((q) => {
-            const type = q.type === 'text' ? 'อัตนัย' : 'ปรนัย';
+            const type = q.type === 'text' ? 'อัตนัย' : q.type === 'checkbox' ? 'checkbox' : 'ปรนัย';
             const prompt = stripHTML(q.prompt);
             const opts = [0, 1, 2, 3].map(i => q.choices?.[i]?.label || '');
-            // Convert letter (a,b,c,d) to 1-based number
+            // Convert letters to 1-based numbers (pipe-separated for checkbox), or export essay ground truth
             let correctNum = '';
-            const exportAnswer = q.type === 'text' ? q.aiGrading?.groundTruths?.[0] : q.correctAnswer;
-            if (exportAnswer) {
-                const idx = exportAnswer.charCodeAt(0) - 97;
-                if (idx >= 0 && idx < (q.choices?.length || 0)) {
-                    correctNum = String(idx + 1);
-                } else {
-                    correctNum = exportAnswer;
-                }
+            if (q.type === 'text') {
+                correctNum = q.aiGrading?.groundTruths?.[0] || '';
+            } else {
+                correctNum = String(q.correctAnswer || '')
+                    .split(',')
+                    .filter(Boolean)
+                    .map((answer) => {
+                        const idx = q.choices?.findIndex(choice => choice.value === answer) ?? -1;
+                        return idx >= 0 ? String(idx + 1) : answer;
+                    })
+                    .join('|');
             }
             return [type, prompt, ...opts, correctNum, q.points || 1].map(escapeCSV).join(',');
         });
@@ -185,6 +188,12 @@ const EditExam = () => {
     const updateQuestion = (qIndex, field, value) => {
         const updated = [...questions];
         updated[qIndex] = { ...updated[qIndex], [field]: value };
+        if (field === 'type') {
+            const selectedAnswers = String(updated[qIndex].correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex].correctAnswer = value === 'checkbox'
+                ? [...new Set(selectedAnswers)].sort().join(',')
+                : (selectedAnswers[0] || '');
+        }
         setQuestions(updated);
     };
 
@@ -248,9 +257,21 @@ const EditExam = () => {
 
     const selectCorrectAnswer = (qIndex, value) => {
         const updated = [...questions];
-        updated[qIndex] = { ...updated[qIndex], correctAnswer: value };
+        const question = updated[qIndex];
+        if (question.type === 'checkbox') {
+            const selected = new Set(String(question.correctAnswer || '').split(',').filter(Boolean));
+            if (selected.has(value)) selected.delete(value);
+            else selected.add(value);
+            updated[qIndex] = { ...question, correctAnswer: [...selected].sort().join(',') };
+        } else {
+            updated[qIndex] = { ...question, correctAnswer: value };
+        }
         setQuestions(updated);
     };
+
+    const isCorrectAnswer = (question, value) => (
+        String(question.correctAnswer || '').split(',').includes(value)
+    );
 
     const addChoice = (qIndex) => {
         const updated = [...questions];
@@ -265,15 +286,20 @@ const EditExam = () => {
     const removeChoice = (qIndex, cIndex) => {
         const updated = [...questions];
         if (updated[qIndex].choices.length <= 2) return;
+        const selectedIndexes = String(updated[qIndex].correctAnswer || '')
+            .split(',')
+            .filter(Boolean)
+            .map(value => updated[qIndex].choices.findIndex(choice => choice.value === value))
+            .filter(index => index >= 0 && index !== cIndex);
         updated[qIndex].choices = updated[qIndex].choices.filter((_, i) => i !== cIndex);
         updated[qIndex].choices = updated[qIndex].choices.map((c, i) => ({
             ...c,
             value: String.fromCharCode(97 + i),
         }));
-        const validValues = updated[qIndex].choices.map(c => c.value);
-        if (!validValues.includes(updated[qIndex].correctAnswer)) {
-            updated[qIndex].correctAnswer = '';
-        }
+        updated[qIndex].correctAnswer = selectedIndexes
+            .map(index => String.fromCharCode(97 + index - (index > cIndex ? 1 : 0)))
+            .sort()
+            .join(',');
         setQuestions(updated);
     };
 
@@ -505,6 +531,19 @@ const EditExam = () => {
                                 </div>
                             </div>
 
+                            {/* Question type */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">รูปแบบคำตอบ</label>
+                                <select
+                                    value={q.type}
+                                    onChange={(e) => updateQuestion(qIndex, 'type', e.target.value)}
+                                    className="w-full sm:w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
+                                >
+                                    <option value="radio">ปรนัย — เลือกคำตอบเดียว</option>
+                                    <option value="checkbox">Checkbox — เลือกได้ 1 ข้อหรือหลายข้อ</option>
+                                </select>
+                            </div>
+
                             {/* Prompt */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">คำถาม</label>
@@ -527,22 +566,24 @@ const EditExam = () => {
                             /* Choices - clickable cards */
                             <div className="space-y-2">
                                 <label className="block text-sm font-medium text-gray-700">
-                                    ตัวเลือก <span className="text-gray-400 font-normal">(คลิกเพื่อเลือกคำตอบที่ถูกต้อง)</span>
+                                    ตัวเลือก <span className="text-gray-400 font-normal">
+                                        ({q.type === 'checkbox' ? 'เลือกคำตอบที่ถูกต้องได้ตั้งแต่ 1 ข้อขึ้นไป' : 'คลิกเพื่อเลือกคำตอบที่ถูกต้อง'})
+                                    </span>
                                 </label>
                                 {q.choices.map((choice, cIndex) => (
                                     <div
                                         key={cIndex}
-                                        className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${q.correctAnswer === choice.value
+                                        className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition-all ${isCorrectAnswer(q, choice.value)
                                             ? 'border-green-500 bg-green-50'
                                             : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
                                             }`}
                                         onClick={() => selectCorrectAnswer(qIndex, choice.value)}
                                     >
-                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${q.correctAnswer === choice.value
+                                        <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center flex-shrink-0 transition-all ${isCorrectAnswer(q, choice.value)
                                             ? 'bg-green-500 text-white'
                                             : 'bg-gray-200 text-gray-500'
                                             }`}>
-                                            {q.correctAnswer === choice.value ? (
+                                            {isCorrectAnswer(q, choice.value) ? (
                                                 <CheckCircle size={16} />
                                             ) : (
                                                 <span className="text-xs font-bold">{choice.value.toUpperCase()}</span>
@@ -582,7 +623,7 @@ const EditExam = () => {
 
                             {q.type !== 'text' && q.correctAnswer && (
                                 <p className="text-xs text-green-600 font-medium">
-                                    ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.toUpperCase()}
+                                    ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.split(',').map(value => value.toUpperCase()).join(', ')}
                                 </p>
                             )}
                         </div>

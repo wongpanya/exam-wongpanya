@@ -5,6 +5,13 @@ const Exam = require('../src/models/examModel');
 const ExamAttempt = require('../src/models/examAttemptModel');
 const { prepareAttemptGrading } = require('../src/services/grading/gradingService');
 
+const normalizeAnswer = (answer) => String(answer || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
 async function run() {
     try {
         if (!process.env.MONGODB_URL) {

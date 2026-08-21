@@ -6,9 +6,16 @@ const isAiQuestion = question => question.type === 'text' && question.gradingMod
 
 const getAnswer = (attempt, questionId) => attempt.answers.find(answer => answer.questionId === questionId);
 
+const normalizeAnswer = (answer) => String(answer || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
 const scoreExactAnswer = (question, answer) => {
     if (!answer) return 0;
-    return String(answer.selectedAnswer) === String(question.correctAnswer) ? (question.points || 1) : 0;
+    return normalizeAnswer(answer.selectedAnswer) === normalizeAnswer(question.correctAnswer) ? (question.points || 1) : 0;
 };
 
 const recalculateAttemptScores = async (attemptId, { session = null } = {}) => {

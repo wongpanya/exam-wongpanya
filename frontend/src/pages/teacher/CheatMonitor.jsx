@@ -545,10 +545,15 @@ const CheatMonitor = () => {
                                         <p className="text-center text-gray-400 text-sm py-4">ไม่พบข้อมูลคำตอบ</p>
                                     ) : (
                                         studentLogs.exam.questions.map((q, i) => {
-                                            const studentAnswer = studentLogs.answers?.find(a => a.questionId === q.questionId)?.selectedAnswer;
                                             const isAiEssay = q.type === 'text' && q.gradingMode === 'ai';
                                             const grading = studentLogs.gradingResults?.find(result => result.questionId === q.questionId);
-                                            const isCorrect = !isAiEssay && String(studentAnswer) === String(q.correctAnswer);
+                                            const normalizeAnswer = (answer) => String(answer || '').split(',').filter(Boolean).sort().join(',');
+                                            const answerLabels = (answer) => String(answer || '')
+                                                .split(',')
+                                                .filter(Boolean)
+                                                .map(value => q.choices?.find(choice => choice.value === value)?.label || value)
+                                                .join(', ');
+                                            const isCorrect = !isAiEssay && normalizeAnswer(studentAnswer) === normalizeAnswer(q.correctAnswer);
                                             const hasAnswered = studentAnswer !== undefined && studentAnswer !== '';
 
                                             return (
@@ -556,11 +561,11 @@ const CheatMonitor = () => {
                                                     <div className="flex justify-between mb-2">
                                                         <h4 className="font-semibold text-gray-900">ข้อ {i + 1}</h4>
                                                         <span className="text-xs font-bold px-2 py-1 rounded bg-white border">
-                                                            {isAiEssay
-                                                                ? (grading?.finalScore !== null && grading?.finalScore !== undefined
-                                                                    ? `${grading.finalScore} / ${q.points} คะแนน`
-                                                                    : grading?.status === 'failed' ? 'ตรวจไม่สำเร็จ' : 'รอผล AI')
-                                                                : isCorrect ? `${q.points} / ${q.points} คะแนน` : `0 / ${q.points} คะแนน`}
+                                                             {isAiEssay
+                                                                 ? (grading?.finalScore !== null && grading?.finalScore !== undefined
+                                                                     ? `${grading.finalScore} / ${q.points} คะแนน`
+                                                                     : grading?.status === 'failed' ? 'ตรวจไม่สำเร็จ' : 'รอผล AI')
+                                                                 : isCorrect ? `${q.points} / ${q.points} คะแนน` : `0 / ${q.points} คะแนน`}
                                                         </span>
                                                     </div>
                                                     <div 
@@ -573,7 +578,7 @@ const CheatMonitor = () => {
                                                             <span className="min-w-[60px] text-gray-500">ตอบ:</span>
                                                             <span className={`font-medium whitespace-pre-wrap ${isAiEssay ? 'text-gray-800' : isCorrect ? 'text-green-700' : 'text-red-600'}`}>
                                                                 {hasAnswered ? (
-                                                                    q.choices?.find(c => c.value === studentAnswer)?.label || studentAnswer
+                                                                    isAiEssay ? studentAnswer : answerLabels(studentAnswer)
                                                                 ) : (
                                                                     <span className="text-gray-400 italic">ไม่ตอบ</span>
                                                                 )}
@@ -583,7 +588,7 @@ const CheatMonitor = () => {
                                                             <div className="flex items-start gap-2">
                                                                 <span className="min-w-[60px] text-gray-500">เฉลย:</span>
                                                                 <span className="font-medium text-green-700">
-                                                                    {q.choices.find(c => c.value === q.correctAnswer)?.label || q.correctAnswer}
+                                                                    {answerLabels(q.correctAnswer)}
                                                                 </span>
                                                             </div>
                                                         )}
