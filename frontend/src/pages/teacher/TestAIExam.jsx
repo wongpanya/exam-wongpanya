@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import {
@@ -22,10 +22,13 @@ import {
     FileSpreadsheet,
     Eye,
     ChevronRight,
-    HelpCircle,
+    ChevronDown,
+    Search,
+    RefreshCw,
     Check,
     X,
-    ExternalLink
+    ExternalLink,
+    Filter
 } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
 import AIGradingConfig from '../../components/AIGradingConfig';
@@ -99,13 +102,42 @@ const PRESET_EXAMS = [
     }
 ];
 
-const DEFAULT_MODELS_POOL = [
-    { provider: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tag: 'Fast & Cheap', badgeColor: 'bg-blue-100 text-blue-800' },
-    { provider: 'gemini', model: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro', tag: 'High Reasoning', badgeColor: 'bg-purple-100 text-purple-800' },
-    { provider: 'gemini', model: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', tag: 'Balanced', badgeColor: 'bg-cyan-100 text-cyan-800' },
-    { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', tag: 'Top Quality', badgeColor: 'bg-orange-100 text-orange-800' },
-    { provider: 'openrouter', model: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', tag: 'Efficient', badgeColor: 'bg-emerald-100 text-emerald-800' },
-    { provider: 'openrouter', model: 'deepseek/deepseek-chat', label: 'DeepSeek Chat', tag: 'Cost Effective', badgeColor: 'bg-indigo-100 text-indigo-800' },
+const FALLBACK_STANDARD_MODELS = [
+    { provider: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tag: 'Fast & Cheap' },
+    { provider: 'gemini', model: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro', tag: 'High Reasoning' },
+    { provider: 'gemini', model: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', tag: 'Balanced' },
+    { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', tag: 'Top Quality' },
+    { provider: 'openrouter', model: 'openai/gpt-4o', label: 'GPT-4o', tag: 'Flagship' },
+    { provider: 'openrouter', model: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', tag: 'Efficient' },
+    { provider: 'openrouter', model: 'deepseek/deepseek-chat', label: 'DeepSeek Chat', tag: 'Cost Effective' },
+    { provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B', tag: 'Open Weights' },
+];
+
+const MODEL_PRESETS = [
+    {
+        name: '🌟 โมเดลยอดนิยม (Top Popular)',
+        models: [
+            { provider: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+            { provider: 'gemini', model: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+            { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+        ]
+    },
+    {
+        name: '⚡ เน้นเร็วและประหยัด (Fast & Low-Cost)',
+        models: [
+            { provider: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+            { provider: 'openrouter', model: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
+            { provider: 'openrouter', model: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
+        ]
+    },
+    {
+        name: '🧠 เน้นความแม่นยำสูง (High Quality Reasoning)',
+        models: [
+            { provider: 'gemini', model: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+            { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+            { provider: 'openrouter', model: 'openai/gpt-4o', label: 'GPT-4o' },
+        ]
+    }
 ];
 
 const createDefaultAiGrading = (points = 5) => ({
@@ -119,20 +151,6 @@ const createDefaultAiGrading = (points = 5) => ({
     modelPreference: ''
 });
 
-const createDefaultQuestion = () => ({
-    questionId: `q-${Date.now()}`,
-    type: 'text',
-    prompt: '',
-    choices: [
-        { value: 'a', label: '' },
-        { value: 'b', label: '' },
-    ],
-    correctAnswer: '',
-    points: 5,
-    gradingMode: 'ai',
-    aiGrading: createDefaultAiGrading(5)
-});
-
 const TestAIExam = () => {
     const navigate = useNavigate();
 
@@ -142,11 +160,20 @@ const TestAIExam = () => {
     const [questions, setQuestions] = useState(PRESET_EXAMS[0].questions);
     const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
     
-    // Model Selection
+    // Model Selection State
     const [selectedModels, setSelectedModels] = useState([
         { provider: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
         { provider: 'gemini', model: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
     ]);
+    
+    // Searchable Dropdown States
+    const [searchQuery, setSearchQuery] = useState('');
+    const [providerFilter, setProviderFilter] = useState('all'); // 'all' | 'gemini' | 'openrouter'
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const dropdownRef = useRef(null);
+
+    // Custom Model Input
     const [customModel, setCustomModel] = useState({ provider: 'gemini', model: '', label: '' });
 
     // Student Answer Simulation
@@ -159,17 +186,111 @@ const TestAIExam = () => {
     const [benchmarkData, setBenchmarkData] = useState(null);
     const [error, setError] = useState('');
 
+    // Fetch settings on mount
+    const fetchSettings = async () => {
+        try {
+            const { data } = await api.get('/grading/provider-settings');
+            setProviderSettings(data);
+        } catch (err) {
+            console.error('Failed to load provider settings:', err);
+        }
+    };
+
     useEffect(() => {
-        const fetchSettings = async () => {
-            try {
-                const { data } = await api.get('/grading/provider-settings');
-                setProviderSettings(data);
-            } catch (err) {
-                console.error('Failed to load provider settings:', err);
-            }
-        };
         fetchSettings();
     }, []);
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                setIsDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Refresh model catalog from API
+    const handleRefreshModels = async (e) => {
+        e?.stopPropagation();
+        setRefreshing(true);
+        try {
+            const providersToRefresh = providerFilter === 'all'
+                ? ['gemini', 'openrouter']
+                : [providerFilter];
+
+            for (const p of providersToRefresh) {
+                try {
+                    await api.post(`/grading/provider-settings/${p}/refresh-models`);
+                } catch (err) {
+                    console.warn(`Could not refresh models for ${p}:`, err.message);
+                }
+            }
+            await fetchSettings();
+        } catch (err) {
+            console.error('Refresh models failed:', err);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    // Combine all models from API + Standard Fallbacks
+    const allAvailableModels = useMemo(() => {
+        const map = new Map();
+
+        // 1. Add all models from API response
+        if (providerSettings?.providers && Array.isArray(providerSettings.providers)) {
+            for (const p of providerSettings.providers) {
+                const providerName = p.provider;
+                if (Array.isArray(p.models)) {
+                    for (const m of p.models) {
+                        const key = `${providerName}::${m.modelId}`;
+                        map.set(key, {
+                            provider: providerName,
+                            model: m.modelId,
+                            label: m.displayName || m.modelId,
+                            contextLength: m.contextLength || null,
+                            fromApi: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. Add fallback standard models if not already in list
+        for (const item of FALLBACK_STANDARD_MODELS) {
+            const key = `${item.provider}::${item.model}`;
+            if (!map.has(key)) {
+                map.set(key, {
+                    provider: item.provider,
+                    model: item.model,
+                    label: item.label,
+                    tag: item.tag,
+                    fromApi: false,
+                });
+            }
+        }
+
+        return Array.from(map.values());
+    }, [providerSettings]);
+
+    // Filter models based on search query & provider tab
+    const filteredModels = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        return allAvailableModels.filter((item) => {
+            if (providerFilter !== 'all' && item.provider !== providerFilter) {
+                return false;
+            }
+            if (!query) return true;
+            return (
+                item.model.toLowerCase().includes(query) ||
+                item.label.toLowerCase().includes(query) ||
+                item.provider.toLowerCase().includes(query) ||
+                (item.tag && item.tag.toLowerCase().includes(query))
+            );
+        });
+    }, [allAvailableModels, searchQuery, providerFilter]);
 
     const currentQuestion = questions[selectedQuestionIndex] || questions[0];
 
@@ -195,12 +316,20 @@ const TestAIExam = () => {
                 m => !(m.provider === target.provider && m.model === target.model)
             ));
         } else {
-            if (selectedModels.length >= 6) {
-                alert('เลือกได้สูงสุด 6 โมเดลพร้อมกัน');
+            if (selectedModels.length >= 8) {
+                alert('เลือกได้สูงสุด 8 โมเดลพร้อมกัน');
                 return;
             }
-            setSelectedModels([...selectedModels, target]);
+            setSelectedModels([...selectedModels, {
+                provider: target.provider,
+                model: target.model,
+                label: target.label || target.model
+            }]);
         }
+    };
+
+    const applyModelPreset = (preset) => {
+        setSelectedModels(preset.models);
     };
 
     const addCustomModel = () => {
@@ -270,7 +399,6 @@ const TestAIExam = () => {
     };
 
     const exportToRealExam = () => {
-        // Navigate to Create Exam with imported question state
         navigate('/teacher/exams/create', {
             state: {
                 importedQuestions: questions
@@ -432,53 +560,217 @@ const TestAIExam = () => {
             {/* STEP 2: Model Selection & Test Scenario Setup */}
             {step === 2 && (
                 <div className="space-y-6">
-                    {/* Models Selection Grid */}
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 space-y-4">
+                    {/* Searchable Multi-Model Selector Card */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 space-y-5">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
                             <div>
                                 <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
                                     <Sparkles size={18} className="text-indigo-600" />
-                                    เลือกโมเดล AI ที่ต้องการเปรียบเทียบ (เลือกได้ 1-6 โมเดล)
+                                    เลือกโมเดล AI สำหรับประเมินเปรียบเทียบ (Multi-Model Selector)
                                 </h2>
-                                <p className="text-xs text-gray-500 mt-0.5">โมเดลที่เลือกจะถูกรันพร้อมกันเพื่อนำผลคะแนน, เหตุผล, และความเร็วมาเปรียบเทียบใน Arena</p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    ดึงรายการโมเดลทั้งหมดจาก API (Gemini, OpenRouter) พร้อมระบบค้นหาแบบ Real-time
+                                </p>
                             </div>
-                            <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full self-start sm:self-auto">
-                                เลือกแล้ว {selectedModels.length} โมเดล
-                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleRefreshModels}
+                                    disabled={refreshing}
+                                    className="px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition flex items-center gap-1.5"
+                                    title="รีเฟรชโมเดลล่าสุดจาก API"
+                                >
+                                    <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                                    {refreshing ? 'กำลังโหลด...' : 'รีเฟรชจาก API'}
+                                </button>
+                                <span className="text-xs font-bold px-3 py-1 bg-indigo-600 text-white rounded-full">
+                                    เลือก {selectedModels.length} / 8 โมเดล
+                                </span>
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                            {DEFAULT_MODELS_POOL.map((item, idx) => {
-                                const isSelected = selectedModels.some(
-                                    m => m.provider === item.provider && m.model === item.model
-                                );
-                                return (
-                                    <div
-                                        key={idx}
-                                        onClick={() => toggleModelSelection(item)}
-                                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition flex items-start justify-between gap-2 ${isSelected ? 'border-indigo-600 bg-indigo-50/40 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
-                                    >
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.badgeColor}`}>
-                                                    {item.provider.toUpperCase()}
-                                                </span>
-                                                <span className="text-[10px] font-medium text-gray-500">{item.tag}</span>
-                                            </div>
-                                            <div className="font-semibold text-sm text-gray-900">{item.label}</div>
-                                            <div className="text-[11px] text-gray-400 font-mono">{item.model}</div>
+                        {/* Selected Models Chips Display */}
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                                <CheckCircle2 size={14} className="text-indigo-600" />
+                                โมเดลที่เลือกจะเข้าร่วมการทดสอบใน Arena ({selectedModels.length}):
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl min-h-[50px]">
+                                {selectedModels.length === 0 ? (
+                                    <span className="text-xs text-gray-400">ยังไม่ได้เลือกโมเดล (กรุณาเลือกอย่างน้อย 1 โมเดลจากเมนูด้านล่าง)</span>
+                                ) : (
+                                    selectedModels.map((item, idx) => (
+                                        <div
+                                            key={idx}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-indigo-200 text-xs font-medium text-gray-800 shadow-sm animate-in fade-in"
+                                        >
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${item.provider === 'gemini' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                                                {item.provider}
+                                            </span>
+                                            <span className="font-semibold">{item.label}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleModelSelection(item)}
+                                                className="p-0.5 text-gray-400 hover:text-red-500 transition rounded"
+                                                title="นำโมเดลนี้ออก"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Quick Presets Buttons */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className="text-xs font-semibold text-gray-500">ชุดเปรียบเทียบด่วน:</span>
+                            {MODEL_PRESETS.map((preset, pIdx) => (
+                                <button
+                                    key={pIdx}
+                                    type="button"
+                                    onClick={() => applyModelPreset(preset)}
+                                    className="px-2.5 py-1 text-xs font-medium bg-gray-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 border border-gray-200 rounded-lg transition"
+                                >
+                                    {preset.name}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Searchable Dropdown Container */}
+                        <div className="relative" ref={dropdownRef}>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                                ค้นหาและเลือกโมเดลจากรายการทั้งหมด (Search & Select Models)
+                            </label>
+
+                            {/* Dropdown Trigger Box */}
+                            <div
+                                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                                className={`w-full px-4 py-2.5 bg-white border rounded-xl flex items-center justify-between cursor-pointer transition shadow-sm ${isDropdownOpen ? 'ring-2 ring-indigo-500 border-transparent' : 'border-gray-300 hover:border-indigo-400'}`}
+                            >
+                                <div className="flex items-center gap-2 text-sm text-gray-700">
+                                    <Search size={16} className="text-gray-400" />
+                                    <span>คลิกเพื่อค้นหาและเลือกโมเดลเพิ่มเติม (มีทั้งหมด {allAvailableModels.length} โมเดลในระบบ)</span>
+                                </div>
+                                <ChevronDown size={18} className={`text-gray-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                            </div>
+
+                            {/* Searchable Popover Menu */}
+                            {isDropdownOpen && (
+                                <div className="absolute z-30 left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 space-y-3 animate-in fade-in slide-in-from-top-2">
+                                    {/* Search input & Provider Filter Tabs */}
+                                    <div className="flex flex-col sm:flex-row gap-2">
+                                        <div className="relative flex-1">
+                                            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                            <input
+                                                type="text"
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                placeholder="พิมพ์ชื่อโมเดล เช่น claude, flash, gpt, deepseek, pro..."
+                                                className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                                                autoFocus
+                                            />
+                                            {searchQuery && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSearchQuery('')}
+                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            )}
                                         </div>
 
-                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-1 transition ${isSelected ? 'bg-indigo-600 text-white' : 'border border-gray-300'}`}>
-                                            {isSelected && <Check size={12} />}
+                                        <div className="flex items-center bg-gray-100 p-1 rounded-lg shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => setProviderFilter('all')}
+                                                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${providerFilter === 'all' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                                            >
+                                                ทั้งหมด ({allAvailableModels.length})
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setProviderFilter('gemini')}
+                                                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${providerFilter === 'gemini' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                                            >
+                                                Gemini
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setProviderFilter('openrouter')}
+                                                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${providerFilter === 'openrouter' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                                            >
+                                                OpenRouter
+                                            </button>
                                         </div>
                                     </div>
-                                );
-                            })}
+
+                                    {/* Models List Scrollable */}
+                                    <div className="max-h-72 overflow-y-auto space-y-1 pr-1 divide-y divide-gray-50">
+                                        {filteredModels.length === 0 ? (
+                                            <div className="p-6 text-center text-xs text-gray-500">
+                                                ไม่พบโมเดลที่ตรงกับคำค้นหา "{searchQuery}"
+                                            </div>
+                                        ) : (
+                                            filteredModels.map((item, mIdx) => {
+                                                const isSelected = selectedModels.some(
+                                                    m => m.provider === item.provider && m.model === item.model
+                                                );
+                                                return (
+                                                    <div
+                                                        key={mIdx}
+                                                        onClick={() => toggleModelSelection(item)}
+                                                        className={`p-2.5 rounded-xl cursor-pointer transition flex items-center justify-between gap-3 ${isSelected ? 'bg-indigo-50/70 border border-indigo-200' : 'hover:bg-gray-50'}`}
+                                                    >
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 transition ${isSelected ? 'bg-indigo-600 text-white' : 'border border-gray-300'}`}>
+                                                                {isSelected && <Check size={11} />}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${item.provider === 'gemini' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                                                                        {item.provider}
+                                                                    </span>
+                                                                    <span className="font-semibold text-xs text-gray-900 truncate">{item.label}</span>
+                                                                    {item.tag && (
+                                                                        <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{item.tag}</span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-[11px] text-gray-400 font-mono truncate">{item.model}</div>
+                                                            </div>
+                                                        </div>
+
+                                                        {item.contextLength && (
+                                                            <span className="text-[10px] text-gray-400 shrink-0 font-mono">
+                                                                {(item.contextLength / 1000).toFixed(0)}k ctx
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+
+                                    <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                                        <span>เลือกได้สูงสุด 8 โมเดล</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDropdownOpen(false)}
+                                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition"
+                                        >
+                                            เสร็จสิ้น ({selectedModels.length})
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Add Custom Model */}
-                        <div className="pt-2">
+                        {/* Custom Model Input */}
+                        <div className="pt-2 border-t border-gray-100">
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                หรือระบุ Custom Model Identifier:
+                            </label>
                             <div className="flex flex-col sm:flex-row items-center gap-2">
                                 <select
                                     value={customModel.provider}
