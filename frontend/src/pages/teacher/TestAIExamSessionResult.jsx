@@ -477,149 +477,228 @@ const TestAIExamSessionResult = () => {
 
             {/* Deep-Dive Student Reasoning & Evidence Modal */}
             {selectedStudentAttempt && (
-                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full p-6 space-y-4 max-h-[90vh] flex flex-col animate-in fade-in">
-                        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                            <div>
-                                <h3 className="font-bold text-base text-gray-900 flex items-center gap-2">
-                                    <Sparkles size={18} className="text-indigo-600" />
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-6xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 border border-gray-100">
+                        {/* Modal Header */}
+                        <div className="p-5 sm:px-8 border-b border-gray-100 bg-gradient-to-r from-gray-50 via-white to-indigo-50/40 flex items-center justify-between gap-4 shrink-0">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 uppercase">
+                                        Deep-Dive AI Evaluation
+                                    </span>
+                                    <span className="text-xs text-gray-400">•</span>
+                                    <span className="text-xs text-gray-500">
+                                        ส่งเมื่อ {new Date(selectedStudentAttempt.submittedAt).toLocaleString('th-TH')}
+                                    </span>
+                                </div>
+                                <h3 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center gap-2">
                                     ผลการตรวจเจาะลึก: {selectedStudentAttempt.studentInfo?.firstName} {selectedStudentAttempt.studentInfo?.lastName}
                                 </h3>
                                 <p className="text-xs text-gray-500">
-                                    ส่งเมื่อ {new Date(selectedStudentAttempt.submittedAt).toLocaleString('th-TH')} • อีเมล {selectedStudentAttempt.studentInfo?.email}
+                                    อีเมล: {selectedStudentAttempt.studentInfo?.email || '-'}
                                 </p>
                             </div>
+
                             <button
                                 type="button"
                                 onClick={() => setSelectedStudentAttempt(null)}
-                                className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg transition"
+                                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition"
+                                title="ปิดหน้าต่าง"
                             >
-                                <X size={18} />
+                                <X size={20} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-                            {/* Student Answer Box */}
-                            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-1.5">
-                                <span className="text-xs font-bold text-gray-700">คำตอบที่นักเรียนส่ง:</span>
-                                <div className="text-xs text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded-lg border border-gray-100">
+                        {/* Modal Body */}
+                        <div className="flex-1 overflow-y-auto p-5 sm:p-8 space-y-6">
+                            {/* Student Submitted Answer Box */}
+                            <div className="bg-gradient-to-br from-indigo-50/60 to-purple-50/40 rounded-2xl p-5 border border-indigo-100/80 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
+                                        <FileText size={15} className="text-indigo-600" />
+                                        คำตอบที่นักเรียนส่ง (Student's Submitted Answer):
+                                    </span>
+                                    <span className="text-[11px] text-indigo-500 font-medium">
+                                        {selectedStudentAttempt.answers?.[0]?.selectedAnswer?.length || 0} ตัวอักษร
+                                    </span>
+                                </div>
+                                <div className="text-sm text-gray-900 leading-relaxed bg-white p-4 rounded-xl border border-indigo-100 shadow-sm whitespace-pre-wrap font-sans">
                                     {selectedStudentAttempt.answers?.[0]?.selectedAnswer || '(ไม่ได้ระบุข้อความคำตอบ)'}
                                 </div>
                             </div>
 
-                            {/* Side-by-Side Model Reasoning & Rubric Cards */}
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                                        <Sparkles size={14} className="text-indigo-600" />
-                                        เปรียบเทียบวิธีคิด เหตุผลการให้คะแนน และการตัดคะแนนของแต่ละโมเดล:
+                            {/* View Mode & Model Switcher Tabs */}
+                            <div className="space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200 pb-3">
+                                    <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                        <Sparkles size={16} className="text-indigo-600" />
+                                        เปรียบเทียบวิธีคิด เหตุผลการให้คะแนน และการตัดคะแนนรายโมเดล:
                                     </h4>
-                                    <span className="text-[11px] text-gray-500">เปรียบเทียบ {selectedStudentAttempt.evaluations?.[0]?.modelEvaluations?.length || 0} โมเดล</span>
-                                </div>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {selectedStudentAttempt.evaluations?.[0]?.modelEvaluations?.map((mEval, idx) => (
-                                        <div
-                                            key={idx}
-                                            className="p-4 bg-white rounded-2xl border-2 border-gray-200 shadow-sm space-y-3 flex flex-col justify-between hover:border-indigo-300 transition"
+
+                                    {/* Tabs */}
+                                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setModalModelTab('all')}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${modalModelTab === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                                         >
-                                            <div className="space-y-3">
-                                                {/* Header */}
-                                                <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                                                    <div>
-                                                        <div className="flex items-center gap-1.5">
-                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${mEval.provider === 'gemini' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
-                                                                {mEval.provider}
-                                                            </span>
-                                                            <span className="font-bold text-sm text-gray-900">{mEval.label}</span>
+                                            🔀 เทียบทุกโมเดล ({selectedStudentAttempt.evaluations?.[0]?.modelEvaluations?.length || 0})
+                                        </button>
+
+                                        {selectedStudentAttempt.evaluations?.[0]?.modelEvaluations?.map((m, mIdx) => (
+                                            <button
+                                                key={mIdx}
+                                                type="button"
+                                                onClick={() => setModalModelTab(m.model)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${modalModelTab === m.model ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            >
+                                                <span>{m.label}</span>
+                                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${modalModelTab === m.model ? 'bg-indigo-800 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                                                    {m.totalScore} คะแนน
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Models Cards Container */}
+                                {(() => {
+                                    const allModels = selectedStudentAttempt.evaluations?.[0]?.modelEvaluations || [];
+                                    const displayedModels = modalModelTab === 'all'
+                                        ? allModels
+                                        : allModels.filter(m => m.model === modalModelTab);
+
+                                    const isSingleView = displayedModels.length === 1;
+
+                                    return (
+                                        <div className={`grid gap-5 ${isSingleView ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'}`}>
+                                            {displayedModels.map((mEval, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    className="p-5 sm:p-6 bg-white rounded-2xl border-2 border-gray-200 shadow-sm space-y-4 flex flex-col justify-between hover:border-indigo-300 transition"
+                                                >
+                                                    <div className="space-y-4">
+                                                        {/* Model Card Header */}
+                                                        <div className="flex items-start justify-between border-b border-gray-100 pb-3 gap-3">
+                                                            <div>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${mEval.provider === 'gemini' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                                                                        {mEval.provider}
+                                                                    </span>
+                                                                    <h5 className="font-bold text-base text-gray-900">{mEval.label}</h5>
+                                                                </div>
+                                                                <span className="text-[11px] text-gray-400 font-mono block mt-0.5">{mEval.model}</span>
+                                                            </div>
+
+                                                            <div className="text-right shrink-0">
+                                                                <div className="text-2xl font-black text-indigo-600">
+                                                                    {mEval.totalScore} <span className="text-xs font-semibold text-gray-400">/ {session.questions?.[0]?.points || 10}</span>
+                                                                </div>
+                                                                <div className="text-[11px] text-gray-400 font-mono flex items-center gap-1 justify-end mt-0.5">
+                                                                    <Clock size={12} /> {mEval.latencyMs} ms
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                        <span className="text-[10px] text-gray-400 font-mono">{mEval.model}</span>
+
+                                                        {/* AI Overall Thought Process & Feedback */}
+                                                        {mEval.feedback && (
+                                                            <div className="space-y-1.5">
+                                                                <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                                                    💡 วิธีคิดและข้อคิดเห็นภาพรวมของ AI:
+                                                                </span>
+                                                                <div className="text-xs text-gray-700 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100/80 leading-relaxed space-y-2">
+                                                                    {mEval.feedback.split(/\s*\|\s*|\n\n+/).filter(Boolean).map((fbChunk, cIdx) => (
+                                                                        <div key={cIdx} className="bg-white/80 p-2.5 rounded-lg border border-indigo-100/50">
+                                                                            {fbChunk}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Rubric Criteria Breakdown with Correct maxScore */}
+                                                        {mEval.rubricScores && mEval.rubricScores.length > 0 && (
+                                                            <div className="space-y-3 pt-2">
+                                                                <span className="text-xs font-bold text-gray-800 block">
+                                                                    📋 เกณฑ์ Rubric, เหตุผลการให้/ตัดคะแนน & หลักฐาน:
+                                                                </span>
+
+                                                                <div className="space-y-3">
+                                                                    {mEval.rubricScores.map((rub, rIdx) => {
+                                                                        const criterionDef = session.questions?.[0]?.aiGrading?.rubricCriteria?.find(c => c.rubricId === rub.rubricId);
+                                                                        const criterionTitle = criterionDef?.title || `เกณฑ์ที่ ${rIdx + 1}`;
+                                                                        const criterionMaxScore = Number(criterionDef?.maxScore) || Number(rub.maxScore) || 1;
+                                                                        const isFullScore = rub.score >= criterionMaxScore;
+                                                                        const isZero = rub.score === 0;
+
+                                                                        return (
+                                                                            <div
+                                                                                key={rIdx}
+                                                                                className={`p-4 rounded-xl border text-xs space-y-2 transition ${isFullScore ? 'bg-emerald-50/40 border-emerald-200' : isZero ? 'bg-red-50/40 border-red-200' : 'bg-amber-50/40 border-amber-200'}`}
+                                                                            >
+                                                                                <div className="flex justify-between items-start gap-2">
+                                                                                    <div>
+                                                                                        <span className="font-bold text-sm text-gray-900">
+                                                                                            {criterionTitle}
+                                                                                        </span>
+                                                                                        {criterionDef?.description && (
+                                                                                            <p className="text-[11px] text-gray-500 mt-0.5">
+                                                                                                {criterionDef.description}
+                                                                                            </p>
+                                                                                        )}
+                                                                                    </div>
+
+                                                                                    <span className={`font-black px-2.5 py-1 rounded-full text-xs shrink-0 ${isFullScore ? 'bg-emerald-100 text-emerald-800' : isZero ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                                                        {rub.score} / {criterionMaxScore} คะแนน
+                                                                                    </span>
+                                                                                </div>
+
+                                                                                {/* Rationale explanation */}
+                                                                                {rub.feedback && (
+                                                                                    <div className="text-gray-800 text-xs leading-relaxed bg-white p-3 rounded-lg border border-gray-200/70 shadow-2xs">
+                                                                                        <strong className="text-gray-900 block mb-1">คำอธิบายและเหตุผล:</strong>
+                                                                                        <div className="whitespace-pre-wrap">{rub.feedback}</div>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                {/* Evidence extracted quote */}
+                                                                                {rub.evidence ? (
+                                                                                    <div className="text-[11px] text-emerald-900 bg-emerald-100/70 p-2.5 rounded-lg border border-emerald-200">
+                                                                                        <span className="font-bold block text-emerald-950 mb-0.5">🔎 หลักฐานที่ AI ตรวจพบในคำตอบ:</span>
+                                                                                        "{rub.evidence}"
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="text-[11px] text-gray-400 italic">
+                                                                                        (ไม่พบข้อความหลักฐานที่สนับสนุนในคำตอบของนักเรียน)
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    <div className="text-right">
-                                                        <div className="text-xl font-black text-indigo-600">
-                                                            {mEval.totalScore} <span className="text-xs font-normal text-gray-400">/ {session.questions?.[0]?.points || 5}</span>
-                                                        </div>
-                                                        <div className="text-[10px] text-gray-400 font-mono flex items-center gap-1 justify-end mt-0.5">
-                                                            <Clock size={11} /> {mEval.latencyMs} ms
-                                                        </div>
+                                                    {/* Card Footer */}
+                                                    <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-400">
+                                                        <span>Tokens: {mEval.inputTokens || 0} in / {mEval.outputTokens || 0} out</span>
+                                                        <span className="font-bold text-indigo-600">Confidence: {((mEval.confidence || 1) * 100).toFixed(0)}%</span>
                                                     </div>
                                                 </div>
-
-                                                {/* Reasoning / Feedback Overview */}
-                                                {mEval.feedback && (
-                                                    <div className="space-y-1">
-                                                        <span className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
-                                                            💡 วิธีคิดและข้อคิดเห็นภาพรวมของ AI:
-                                                        </span>
-                                                        <div className="text-xs text-gray-700 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 leading-relaxed whitespace-pre-wrap">
-                                                            {mEval.feedback}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Rubric Breakdown with Evidence & Deduction */}
-                                                {mEval.rubricScores && mEval.rubricScores.length > 0 && (
-                                                    <div className="space-y-2 pt-1">
-                                                        <span className="text-[11px] font-bold text-gray-700">
-                                                            เกณฑ์ Rubric, เหตุผลที่ให้/ตัดคะแนน & หลักฐาน:
-                                                        </span>
-                                                        {mEval.rubricScores.map((rub, rIdx) => {
-                                                            const isFullScore = rub.score >= (rub.maxScore || 1);
-                                                            const isZero = rub.score === 0;
-                                                            return (
-                                                                <div
-                                                                    key={rIdx}
-                                                                    className={`p-3 rounded-xl border text-xs space-y-1.5 ${isFullScore ? 'bg-emerald-50/40 border-emerald-200/80' : isZero ? 'bg-red-50/40 border-red-200/80' : 'bg-amber-50/40 border-amber-200/80'}`}
-                                                                >
-                                                                    <div className="flex justify-between items-center">
-                                                                        <span className="font-bold text-gray-900">
-                                                                            {session.questions?.[0]?.aiGrading?.rubricCriteria?.find(c => c.rubricId === rub.rubricId)?.title || `เกณฑ์ที่ ${rIdx + 1}`}
-                                                                        </span>
-                                                                        <span className={`font-black px-2 py-0.5 rounded-full text-xs ${isFullScore ? 'bg-emerald-100 text-emerald-800' : isZero ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
-                                                                            {rub.score} / {rub.maxScore || session.questions?.[0]?.points || 5} คะแนน
-                                                                        </span>
-                                                                    </div>
-
-                                                                    {/* Rationale explanation */}
-                                                                    {rub.feedback && (
-                                                                        <p className="text-gray-700 text-xs leading-relaxed bg-white/80 p-2.5 rounded-lg border border-gray-100">
-                                                                            <strong className="text-gray-800">คำอธิบายเหตุผล:</strong> {rub.feedback}
-                                                                        </p>
-                                                                    )}
-
-                                                                    {/* Evidence extracted quote */}
-                                                                    {rub.evidence ? (
-                                                                        <div className="text-[11px] text-emerald-800 bg-emerald-100/60 p-2 rounded-lg border border-emerald-200/70">
-                                                                            <span className="font-bold">🔎 หลักฐานที่พบในคำตอบ:</span> "{rub.evidence}"
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="text-[11px] text-gray-400 italic">
-                                                                            (ไม่พบข้อความหลักฐานที่สนับสนุนในคำตอบของนักเรียน)
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400">
-                                                <span>Tokens: {mEval.inputTokens || 0} in / {mEval.outputTokens || 0} out</span>
-                                                <span className="font-semibold text-indigo-600">Confidence: {((mEval.confidence || 1) * 100).toFixed(0)}%</span>
-                                            </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
+                                    );
+                                })()}
                             </div>
                         </div>
 
-                        <div className="pt-2 border-t border-gray-100 flex justify-end">
+                        {/* Modal Footer */}
+                        <div className="p-4 sm:px-8 border-t border-gray-100 bg-gray-50/60 flex justify-end shrink-0">
                             <button
                                 type="button"
                                 onClick={() => setSelectedStudentAttempt(null)}
-                                className="px-5 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition"
+                                className="px-6 py-2.5 text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl transition shadow-sm"
                             >
                                 ปิดหน้าต่าง
                             </button>

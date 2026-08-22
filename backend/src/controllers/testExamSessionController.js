@@ -133,15 +133,18 @@ const processAttemptEvaluations = async (attemptId, session, answersList) => {
 
                     const modelEvals = benchmarkRes.results.map(r => {
                         const rawRubric = r.result?.criteria || r.result?.rubricScores || [];
-                        const rubricScores = rawRubric.map(c => ({
-                            rubricId: c.rubricId,
-                            score: c.score,
-                            maxScore: c.maxScore,
-                            feedback: c.reason || c.feedback || '',
-                            evidence: Array.isArray(c.evidence) ? c.evidence.join('; ') : (c.evidence || ''),
-                        }));
+                        const rubricScores = rawRubric.map(c => {
+                            const criterionDef = q.aiGrading?.rubricCriteria?.find(rc => rc.rubricId === c.rubricId);
+                            return {
+                                rubricId: c.rubricId,
+                                score: c.score,
+                                maxScore: Number(criterionDef?.maxScore) || Number(c.maxScore) || 1,
+                                feedback: c.reason || c.feedback || '',
+                                evidence: Array.isArray(c.evidence) ? c.evidence.join('; ') : (c.evidence || ''),
+                            };
+                        });
 
-                        const feedback = r.result?.reviewReason || rawRubric.map(c => c.reason || c.feedback).filter(Boolean).join(' | ') || r.result?.feedback || '';
+                        const feedback = r.result?.reviewReason || rawRubric.map(c => c.reason || c.feedback).filter(Boolean).join('\n\n') || r.result?.feedback || '';
 
                         return {
                             provider: r.provider,
