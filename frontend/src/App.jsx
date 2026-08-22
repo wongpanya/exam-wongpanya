@@ -22,6 +22,7 @@ const ExamHistory = lazy(() => import('./pages/teacher/ExamHistory'));
 const ExamAttempts = lazy(() => import('./pages/teacher/ExamAttempts'));
 const GradingReview = lazy(() => import('./pages/teacher/GradingReview'));
 const AIProviderSettings = lazy(() => import('./pages/teacher/AIProviderSettings'));
+const TestAIExam = lazy(() => import('./pages/teacher/TestAIExam'));
 const AttendanceSummary = lazy(() => import('./pages/teacher/AttendanceSummary'));
 const StudentLayout = lazy(() => import('./components/StudentLayout'));
 const StudentHome = lazy(() => import('./pages/student/StudentHome'));
@@ -64,6 +65,7 @@ function App() {
                                         <Route path="exams/:id/attempts" element={<ExamAttempts />} />
                                         <Route path="exams/:id/attempts/:attemptId/grading/:questionId" element={<GradingReview />} />
                                         <Route path="ai-settings" element={<AIProviderSettings />} />
+                                        <Route path="test-ai-exam" element={<TestAIExam />} />
                                         <Route path="exams/:id/history" element={<ExamHistory />} />
                                         <Route path="attendance/:sessionId" element={<AttendanceSummary />} />
                                     </Route>

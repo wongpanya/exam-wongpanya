@@ -15,10 +15,12 @@ const {
     providerKeySchema,
     providerModelSchema,
     primaryProviderSchema,
+    benchmarkSchema,
 } = require('../schemas/gradingSchemas');
 const {
     grade,
     regrade,
+    benchmark,
     getGrading,
     getAttemptGrading,
     review,
@@ -42,6 +44,7 @@ router.post('/provider-settings/:provider/refresh-models', gradingLimiter, refre
 router.patch('/provider-settings/:provider/model', gradingLimiter, validate(providerModelSchema), updateProviderModel);
 router.delete('/provider-settings/:provider/key', gradingLimiter, removeProviderKey);
 router.post('/grade', gradingLimiter, validate(gradeSchema), grade);
+router.post('/benchmark', gradingLimiter, validate(benchmarkSchema), benchmark);
 
 const answerMiddlewares = [loadOwnedAnswer, loadOwnedGradingResult];
 router.get('/:attemptId/all', getAttemptGrading);

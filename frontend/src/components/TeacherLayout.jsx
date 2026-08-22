@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle, KeyRound, FlaskConical } from 'lucide-react';
 import api from '../config/api';
 
 const TeacherLayout = () => {
@@ -118,6 +118,11 @@ const TeacherLayout = () => {
             name: 'ตั้งค่า AI Provider',
             path: '/teacher/ai-settings',
             icon: <KeyRound size={20} />,
+        },
+        {
+            name: 'ทดลองโมเดล AI',
+            path: '/teacher/test-ai-exam',
+            icon: <FlaskConical size={20} />,
         },
     ];
 

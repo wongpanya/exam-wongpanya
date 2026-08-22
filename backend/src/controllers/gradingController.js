@@ -12,6 +12,7 @@ const {
     processGradingResult,
     queueRegrade,
     gradeAdHoc,
+    benchmarkAdHoc,
     snapshotScores,
 } = require('../services/grading/gradingService');
 const {
@@ -376,9 +377,20 @@ const removeProviderKey = asyncHandler(async (req, res) => {
     res.json({ message: 'Provider API key removed' });
 });
 
+// POST /api/grading/benchmark
+const benchmark = asyncHandler(async (req, res) => {
+    const { request, models } = req.body;
+    const result = await benchmarkAdHoc(request, {
+        requestedBy: req.user._id,
+        models,
+    });
+    res.json(result);
+});
+
 module.exports = {
     grade,
     regrade,
+    benchmark,
     getGrading,
     getAttemptGrading,
     review,

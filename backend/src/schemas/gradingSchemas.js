@@ -43,6 +43,17 @@ const reviewSchema = z.discriminatedUnion('action', [
     }).strict(),
 ]);
 
+const benchmarkModelTargetSchema = z.object({
+    provider: z.enum(['system', 'gemini', 'openrouter']),
+    model: z.string().trim().max(300).default(''),
+    label: z.string().trim().max(100).optional(),
+}).strict();
+
+const benchmarkSchema = z.object({
+    request: gradeRequestSchema,
+    models: z.array(benchmarkModelTargetSchema).min(1).max(10),
+}).strict();
+
 module.exports = {
     gradeSchema,
     regradeSchema,
@@ -50,4 +61,5 @@ module.exports = {
     providerKeySchema,
     providerModelSchema,
     primaryProviderSchema,
+    benchmarkSchema,
 };

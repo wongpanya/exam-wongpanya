@@ -352,6 +352,167 @@ const gradeAdHoc = async (rawRequest, {
     return { ...routed.result, rulesDecisions: routed.rulesDecisions };
 };
 
+const computeBenchmarkSummary = (results, request = {}) => {
+    const successful = results.filter(r => r.status === 'succeeded' && r.result);
+    if (successful.length === 0) {
+        return {
+            totalEvaluated: results.length,
+            successfulCount: 0,
+            failedCount: results.length,
+            averageScore: 0,
+            scoreRange: { min: 0, max: 0, spread: 0 },
+            recommendations: null,
+            insights: ['ทุกโมเดลที่เลือกทดสอบเกิดข้อผิดพลาดในการประมวลผล'],
+        };
+    }
+
+    const scores = successful.map(r => Number(r.result.totalScore) || 0);
+    const minScore = Math.min(...scores);
+    const maxScore = Math.max(...scores);
+    const sumScores = scores.reduce((acc, s) => acc + s, 0);
+    const averageScore = Number((sumScores / successful.length).toFixed(2));
+
+    const fastest = successful.reduce((best, curr) => {
+        const currLat = curr.latencyMs || curr.result.metadata?.latencyMs || Infinity;
+        const bestLat = best.latencyMs || best.result.metadata?.latencyMs || Infinity;
+        return currLat < bestLat ? curr : best;
+    }, successful[0]);
+
+    const highestEvidence = successful.reduce((best, curr) => {
+        const currEvidenceCount = (curr.result.rubricScores || []).filter(c => c.evidence && c.evidence.trim()).length;
+        const bestEvidenceCount = (best.result.rubricScores || []).filter(c => c.evidence && c.evidence.trim()).length;
+        return currEvidenceCount > bestEvidenceCount ? curr : best;
+    }, successful[0]);
+
+    const balanced = highestEvidence || fastest || successful[0];
+
+    const insights = [];
+    if (maxScore === minScore) {
+        insights.push(`ทุกโมเดลให้คะแนนตรงกันอย่างเอกฉันท์ที่ ${averageScore} คะแนน`);
+    } else {
+        insights.push(`คะแนนระหว่างโมเดลต่างกัน ${(maxScore - minScore).toFixed(1)} คะแนน (ต่ำสุด: ${minScore}, สูงสุด: ${maxScore})`);
+    }
+    insights.push(`โมเดลที่เร็วที่สุดคือ ${fastest.label || fastest.model} (${fastest.latencyMs} ms)`);
+
+    return {
+        totalEvaluated: results.length,
+        successfulCount: successful.length,
+        failedCount: results.length - successful.length,
+        averageScore,
+        scoreRange: { min: minScore, max: maxScore, spread: Number((maxScore - minScore).toFixed(2)) },
+        recommendations: {
+            bestValue: {
+                provider: fastest.provider,
+                model: fastest.model,
+                label: fastest.label,
+                reason: `ประมวลผลเร็วที่สุด (${fastest.latencyMs} ms) เหมาะสำหรับการตรวจจำนวนมาก`,
+            },
+            highestQuality: {
+                provider: highestEvidence.provider,
+                model: highestEvidence.model,
+                label: highestEvidence.label,
+                reason: 'ยกหลักฐาน (Evidence) และให้เหตุผลการประเมินตามเกณฑ์ Rubric ละเอียดที่สุด',
+            },
+            balanced: {
+                provider: balanced.provider,
+                model: balanced.model,
+                label: balanced.label,
+                reason: 'ให้ความสมดุลทั้งความแม่นยำในการให้คะแนนและระยะเวลาประมวลผล',
+            },
+        },
+        insights,
+    };
+};
+
+const benchmarkAdHoc = async (rawRequest, {
+    requestedBy = null,
+    models = [],
+} = {}) => {
+    const request = validateGradeRequest(rawRequest);
+    if (request.studentAnswer.length > aiConfig.maxAnswerChars) {
+        throw new GradingError(`Student answer exceeds ${aiConfig.maxAnswerChars} characters`, {
+            code: 'ANSWER_TOO_LONG',
+            statusCode: 400,
+        });
+    }
+
+    const preRule = evaluatePreGradeRules(request);
+    if (preRule) {
+        const results = models.map(target => ({
+            provider: target.provider,
+            model: target.model || 'empty-answer-v1',
+            label: target.label || `${target.provider} (${target.model || 'default'})`,
+            status: 'succeeded',
+            latencyMs: 0,
+            result: {
+                ...preRule.result,
+                metadata: { provider: 'rules-engine', model: 'empty-answer-v1', latencyMs: 0 },
+                rulesDecisions: preRule.decisions,
+            },
+        }));
+        return { request, results, summary: computeBenchmarkSummary(results, request) };
+    }
+
+    const promises = models.map(async (target) => {
+        const start = Date.now();
+        const operationId = randomUUID();
+        const context = { requestedBy, trigger: 'benchmark', target, requestSnapshot: request };
+        const logger = createGradingRunLogger({ operationId, context });
+
+        try {
+            const credentials = await getTeacherProviderCredentials(requestedBy, {
+                preferredProvider: target.provider,
+                preferredModel: target.model,
+            });
+            const routingConfig = routingConfigFor(credentials);
+            const router = new AIRouter({
+                providers: createProviderRegistry({ credentials, config: routingConfig }),
+                config: routingConfig,
+                onAttempt: logger,
+            });
+
+            const routed = await router.grade(request, {
+                preferredProvider: target.provider,
+                context,
+            });
+
+            const latencyMs = Date.now() - start;
+            return {
+                provider: target.provider,
+                model: target.model || routed.result.metadata?.model || '',
+                label: target.label || `${target.provider} (${target.model || 'default'})`,
+                status: 'succeeded',
+                latencyMs,
+                result: {
+                    ...routed.result,
+                    metadata: {
+                        ...routed.result.metadata,
+                        latencyMs,
+                    },
+                    rulesDecisions: routed.rulesDecisions,
+                },
+            };
+        } catch (error) {
+            const latencyMs = Date.now() - start;
+            return {
+                provider: target.provider,
+                model: target.model || '',
+                label: target.label || `${target.provider} (${target.model || 'default'})`,
+                status: 'failed',
+                latencyMs,
+                error: error.message || 'Model execution failed',
+            };
+        }
+    });
+
+    const evaluated = await Promise.all(promises);
+    return {
+        request,
+        results: evaluated,
+        summary: computeBenchmarkSummary(evaluated, request),
+    };
+};
+
 module.exports = {
     buildGradeRequest,
     prepareAttemptGrading,
@@ -360,5 +521,7 @@ module.exports = {
     processGradingResult,
     queueRegrade,
     gradeAdHoc,
+    benchmarkAdHoc,
+    computeBenchmarkSummary,
     snapshotScores,
 };
