@@ -488,20 +488,27 @@ const TestAIExamSessionResult = () => {
                             </div>
 
                             {/* Side-by-Side Model Reasoning & Rubric Cards */}
-                            <div className="space-y-2">
-                                <h4 className="text-xs font-bold text-gray-700">เปรียบเทียบวิธีคิด & หลักฐาน (Reasoning & Evidence) ของแต่ละโมเดล:</h4>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                        <Sparkles size={14} className="text-indigo-600" />
+                                        เปรียบเทียบวิธีคิด เหตุผลการให้คะแนน และการตัดคะแนนของแต่ละโมเดล:
+                                    </h4>
+                                    <span className="text-[11px] text-gray-500">เปรียบเทียบ {selectedStudentAttempt.evaluations?.[0]?.modelEvaluations?.length || 0} โมเดล</span>
+                                </div>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {selectedStudentAttempt.evaluations?.[0]?.modelEvaluations?.map((mEval, idx) => (
                                         <div
                                             key={idx}
-                                            className="p-4 bg-white rounded-xl border border-gray-200 shadow-sm space-y-3 flex flex-col justify-between"
+                                            className="p-4 bg-white rounded-2xl border-2 border-gray-200 shadow-sm space-y-3 flex flex-col justify-between hover:border-indigo-300 transition"
                                         >
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                            <div className="space-y-3">
+                                                {/* Header */}
+                                                <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                                                     <div>
                                                         <div className="flex items-center gap-1.5">
-                                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded uppercase bg-indigo-100 text-indigo-700">
+                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${mEval.provider === 'gemini' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
                                                                 {mEval.provider}
                                                             </span>
                                                             <span className="font-bold text-sm text-gray-900">{mEval.label}</span>
@@ -510,47 +517,77 @@ const TestAIExamSessionResult = () => {
                                                     </div>
 
                                                     <div className="text-right">
-                                                        <div className="text-lg font-black text-indigo-600">
+                                                        <div className="text-xl font-black text-indigo-600">
                                                             {mEval.totalScore} <span className="text-xs font-normal text-gray-400">/ {session.questions?.[0]?.points || 5}</span>
                                                         </div>
-                                                        <span className="text-[10px] text-gray-400 font-mono">{mEval.latencyMs} ms</span>
+                                                        <div className="text-[10px] text-gray-400 font-mono flex items-center gap-1 justify-end mt-0.5">
+                                                            <Clock size={11} /> {mEval.latencyMs} ms
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                {/* Reasoning / Feedback */}
+                                                {/* Reasoning / Feedback Overview */}
                                                 {mEval.feedback && (
-                                                    <div>
-                                                        <span className="text-[11px] font-semibold text-gray-700">วิธีคิดและข้อเสนอแนะ:</span>
-                                                        <p className="text-xs text-gray-600 bg-indigo-50/40 p-2.5 rounded-lg border border-indigo-100 mt-1 leading-relaxed">
+                                                    <div className="space-y-1">
+                                                        <span className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
+                                                            💡 วิธีคิดและข้อคิดเห็นภาพรวมของ AI:
+                                                        </span>
+                                                        <div className="text-xs text-gray-700 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 leading-relaxed whitespace-pre-wrap">
                                                             {mEval.feedback}
-                                                        </p>
+                                                        </div>
                                                     </div>
                                                 )}
 
-                                                {/* Rubric Breakdown with Evidence */}
+                                                {/* Rubric Breakdown with Evidence & Deduction */}
                                                 {mEval.rubricScores && mEval.rubricScores.length > 0 && (
                                                     <div className="space-y-2 pt-1">
-                                                        <span className="text-[11px] font-semibold text-gray-700">คะแนนรายเกณฑ์ Rubric & หลักฐาน:</span>
-                                                        {mEval.rubricScores.map((rub, rIdx) => (
-                                                            <div key={rIdx} className="p-2.5 bg-gray-50 rounded-lg border border-gray-100 text-xs space-y-1">
-                                                                <div className="flex justify-between items-center">
-                                                                    <span className="font-semibold text-gray-800">
-                                                                        {session.questions?.[0]?.aiGrading?.rubricCriteria?.find(c => c.rubricId === rub.rubricId)?.title || `เกณฑ์ที่ ${rIdx + 1}`}
-                                                                    </span>
-                                                                    <span className="font-bold text-indigo-600">{rub.score} คะแนน</span>
-                                                                </div>
-                                                                {rub.feedback && (
-                                                                    <p className="text-gray-600 text-[11px] leading-relaxed">{rub.feedback}</p>
-                                                                )}
-                                                                {rub.evidence && (
-                                                                    <div className="text-[11px] text-emerald-700 bg-emerald-50/80 p-1.5 rounded border border-emerald-100">
-                                                                        <span className="font-bold">หลักฐานที่ AI ตรวจพบ:</span> "{rub.evidence}"
+                                                        <span className="text-[11px] font-bold text-gray-700">
+                                                            เกณฑ์ Rubric, เหตุผลที่ให้/ตัดคะแนน & หลักฐาน:
+                                                        </span>
+                                                        {mEval.rubricScores.map((rub, rIdx) => {
+                                                            const isFullScore = rub.score >= (rub.maxScore || 1);
+                                                            const isZero = rub.score === 0;
+                                                            return (
+                                                                <div
+                                                                    key={rIdx}
+                                                                    className={`p-3 rounded-xl border text-xs space-y-1.5 ${isFullScore ? 'bg-emerald-50/40 border-emerald-200/80' : isZero ? 'bg-red-50/40 border-red-200/80' : 'bg-amber-50/40 border-amber-200/80'}`}
+                                                                >
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="font-bold text-gray-900">
+                                                                            {session.questions?.[0]?.aiGrading?.rubricCriteria?.find(c => c.rubricId === rub.rubricId)?.title || `เกณฑ์ที่ ${rIdx + 1}`}
+                                                                        </span>
+                                                                        <span className={`font-black px-2 py-0.5 rounded-full text-xs ${isFullScore ? 'bg-emerald-100 text-emerald-800' : isZero ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                                            {rub.score} / {rub.maxScore || session.questions?.[0]?.points || 5} คะแนน
+                                                                        </span>
                                                                     </div>
-                                                                )}
-                                                            </div>
-                                                        ))}
+
+                                                                    {/* Rationale explanation */}
+                                                                    {rub.feedback && (
+                                                                        <p className="text-gray-700 text-xs leading-relaxed bg-white/80 p-2.5 rounded-lg border border-gray-100">
+                                                                            <strong className="text-gray-800">คำอธิบายเหตุผล:</strong> {rub.feedback}
+                                                                        </p>
+                                                                    )}
+
+                                                                    {/* Evidence extracted quote */}
+                                                                    {rub.evidence ? (
+                                                                        <div className="text-[11px] text-emerald-800 bg-emerald-100/60 p-2 rounded-lg border border-emerald-200/70">
+                                                                            <span className="font-bold">🔎 หลักฐานที่พบในคำตอบ:</span> "{rub.evidence}"
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-[11px] text-gray-400 italic">
+                                                                            (ไม่พบข้อความหลักฐานที่สนับสนุนในคำตอบของนักเรียน)
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
+                                            </div>
+
+                                            <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400">
+                                                <span>Tokens: {mEval.inputTokens || 0} in / {mEval.outputTokens || 0} out</span>
+                                                <span className="font-semibold text-indigo-600">Confidence: {((mEval.confidence || 1) * 100).toFixed(0)}%</span>
                                             </div>
                                         </div>
                                     ))}

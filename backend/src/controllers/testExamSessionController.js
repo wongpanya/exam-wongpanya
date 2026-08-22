@@ -131,21 +131,34 @@ const processAttemptEvaluations = async (attemptId, session, answersList) => {
                         models: session.modelsToCompare,
                     });
 
-                    const modelEvals = benchmarkRes.results.map(r => ({
-                        provider: r.provider,
-                        model: r.model,
-                        label: r.label,
-                        status: r.status,
-                        totalScore: r.result?.totalScore ?? 0,
-                        rubricScores: r.result?.rubricScores || [],
-                        feedback: r.result?.feedback || '',
-                        confidence: r.result?.confidence || 1,
-                        latencyMs: r.latencyMs || 0,
-                        inputTokens: r.result?.metadata?.inputTokens || 0,
-                        outputTokens: r.result?.metadata?.outputTokens || 0,
-                        estimatedCost: r.result?.metadata?.costUsd || 0,
-                        error: r.error || '',
-                    }));
+                    const modelEvals = benchmarkRes.results.map(r => {
+                        const rawRubric = r.result?.criteria || r.result?.rubricScores || [];
+                        const rubricScores = rawRubric.map(c => ({
+                            rubricId: c.rubricId,
+                            score: c.score,
+                            maxScore: c.maxScore,
+                            feedback: c.reason || c.feedback || '',
+                            evidence: Array.isArray(c.evidence) ? c.evidence.join('; ') : (c.evidence || ''),
+                        }));
+
+                        const feedback = r.result?.reviewReason || rawRubric.map(c => c.reason || c.feedback).filter(Boolean).join(' | ') || r.result?.feedback || '';
+
+                        return {
+                            provider: r.provider,
+                            model: r.model,
+                            label: r.label,
+                            status: r.status,
+                            totalScore: r.result?.totalScore ?? 0,
+                            rubricScores,
+                            feedback,
+                            confidence: r.result?.confidence || 1,
+                            latencyMs: r.latencyMs || 0,
+                            inputTokens: r.result?.metadata?.inputTokens || 0,
+                            outputTokens: r.result?.metadata?.outputTokens || 0,
+                            estimatedCost: r.result?.metadata?.costUsd || 0,
+                            error: r.error || '',
+                        };
+                    });
 
                     evaluations.push({
                         questionId: q.questionId,
