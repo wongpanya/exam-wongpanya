@@ -34,7 +34,26 @@ const {
     removeProviderKey,
 } = require('../controllers/gradingController');
 
+const {
+    createTestSession,
+    listTeacherTestSessions,
+    getTestSession,
+    submitTestExam,
+    getTestSessionResults,
+    endTestSession,
+} = require('../controllers/testExamSessionController');
+
+// Student & general authenticated test session endpoints
+router.get('/test-sessions/:sessionId', protect, getTestSession);
+router.post('/test-sessions/:sessionId/submit', protect, gradingLimiter, submitTestExam);
+
+// Teacher-only grading and review endpoints
 router.use(protect, gradingReviewer);
+
+router.post('/test-sessions', createTestSession);
+router.get('/test-sessions', listTeacherTestSessions);
+router.get('/test-sessions/:sessionId/results', getTestSessionResults);
+router.patch('/test-sessions/:sessionId/end', endTestSession);
 
 router.get('/providers', getProviders);
 router.get('/provider-settings', getProviderSettings);

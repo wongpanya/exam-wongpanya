@@ -29,6 +29,7 @@ const StudentHome = lazy(() => import('./pages/student/StudentHome'));
 const StudentHistory = lazy(() => import('./pages/student/StudentHistory'));
 const JoinExam = lazy(() => import('./pages/student/JoinExam'));
 const TakeExam = lazy(() => import('./pages/student/TakeExam'));
+const StudentTakeTestExam = lazy(() => import('./pages/student/StudentTakeTestExam'));
 
 const PageLoader = () => (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -75,6 +76,7 @@ function App() {
                                         <Route path="history" element={<StudentHistory />} />
                                         <Route path="join" element={<JoinExam />} />
                                         <Route path="exam/:examId" element={<TakeExam />} />
+                                        <Route path="test-exam/:sessionId" element={<StudentTakeTestExam />} />
                                     </Route>
 
                                     <Route path="*" element={<NotFound />} />
