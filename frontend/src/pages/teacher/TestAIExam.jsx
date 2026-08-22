@@ -377,6 +377,18 @@ const TestAIExam = () => {
         }
     };
 
+    const handleDeleteSession = async (sessionId, e) => {
+        e?.stopPropagation();
+        if (!window.confirm('คุณต้องการลบห้องสอบจำลองนี้หรือไม่?\nข้อมูลการส่งคำตอบและผลการตรวจทั้งหมดใน Session นี้จะถูกลบถาวร')) return;
+        try {
+            await api.delete(`/grading/test-sessions/${sessionId}`);
+            fetchAllSessions();
+            fetchExams();
+        } catch (err) {
+            alert(err.response?.data?.message || 'เกิดข้อผิดพลาดในการลบห้องสอบจำลอง');
+        }
+    };
+
     const handleSaveExam = async (startAfterSave = false) => {
         if (!examTitle.trim()) {
             alert('กรุณาระบุชื่อชุดข้อสอบ');
@@ -947,12 +959,22 @@ const TestAIExam = () => {
                                                 {new Date(s.createdAt).toLocaleDateString('th-TH')}
                                             </td>
                                             <td className="p-3.5 text-right">
-                                                <Link
-                                                    to={`/teacher/test-ai-exam/sessions/${s._id}`}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold transition"
-                                                >
-                                                    ดูผลลัพธ์ & Arena <ArrowRight size={13} />
-                                                </Link>
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    <Link
+                                                        to={`/teacher/test-ai-exam/sessions/${s._id}`}
+                                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold transition"
+                                                    >
+                                                        ดูผลลัพธ์ & Arena <ArrowRight size={13} />
+                                                    </Link>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => handleDeleteSession(s._id, e)}
+                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                        title="ลบ Session นี้"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}

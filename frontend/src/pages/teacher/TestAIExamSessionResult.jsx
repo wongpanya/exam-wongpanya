@@ -211,6 +211,15 @@ const TestAIExamSessionResult = () => {
                     >
                         {session.status === 'active' ? 'ปิดห้องสอบ' : 'เปิดห้องสอบใหม่'}
                     </button>
+
+                    <button
+                        type="button"
+                        onClick={handleDeleteSession}
+                        className="px-3 py-2 text-xs font-semibold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl transition flex items-center gap-1 shadow-sm"
+                        title="ลบ Session นี้ถาวร"
+                    >
+                        <Trash2 size={14} /> ลบ Session
+                    </button>
                 </div>
             </div>
 

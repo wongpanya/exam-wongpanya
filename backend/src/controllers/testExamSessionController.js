@@ -519,8 +519,8 @@ const getTestSessionResults = asyncHandler(async (req, res) => {
     });
 });
 
-// PATCH /api/grading/test-sessions/:sessionId/end
-const endTestSession = asyncHandler(async (req, res) => {
+// DELETE /api/grading/test-sessions/:sessionId
+const deleteTestSession = asyncHandler(async (req, res) => {
     const { sessionId } = req.params;
     const session = await TestExamSession.findById(sessionId);
     if (!session) {
@@ -528,15 +528,25 @@ const endTestSession = asyncHandler(async (req, res) => {
         throw new Error('ไม่พบห้องสอบจำลองนี้');
     }
 
-    if (String(session.createdBy) !== String(req.user._id)) {
+    if (String(session.createdBy) !== String(req.user._id) && req.user.role !== 'admin') {
         res.status(403);
-        throw new Error('คุณไม่มีสิทธิ์ปิดห้องสอบนี้');
+        throw new Error('คุณไม่มีสิทธิ์ลบห้องสอบนี้');
     }
 
-    session.status = session.status === 'active' ? 'ended' : 'active';
-    await session.save();
+    // Delete all student attempts for this session
+    await TestExamAttempt.deleteMany({ session: session._id });
 
-    res.json({ message: `ห้องสอบ${session.status === 'active' ? 'เปิด' : 'ปิด'}แล้ว`, session });
+    // Decrement sessionCount on parent TestExam if linked
+    if (session.testExam) {
+        await TestExam.updateOne(
+            { _id: session.testExam, sessionCount: { $gt: 0 } },
+            { $inc: { sessionCount: -1 } }
+        );
+    }
+
+    await TestExamSession.findByIdAndDelete(sessionId);
+
+    res.json({ message: 'ลบห้องสอบจำลองและข้อมูลการสอบทั้งหมดเรียบร้อยแล้ว' });
 });
 
 module.exports = {
@@ -552,5 +562,6 @@ module.exports = {
     getStudentAttemptStatus,
     getTestSessionResults,
     endTestSession,
+    deleteTestSession,
     processAttemptEvaluations,
 };

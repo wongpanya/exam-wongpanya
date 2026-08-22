@@ -47,6 +47,7 @@ const {
     getStudentAttemptStatus,
     getTestSessionResults,
     endTestSession,
+    deleteTestSession,
 } = require('../controllers/testExamSessionController');
 
 // Student & general authenticated test session endpoints
@@ -69,6 +70,7 @@ router.post('/test-sessions', createTestSession);
 router.get('/test-sessions', listTeacherTestSessions);
 router.get('/test-sessions/:sessionId/results', getTestSessionResults);
 router.patch('/test-sessions/:sessionId/end', endTestSession);
+router.delete('/test-sessions/:sessionId', deleteTestSession);
 
 router.get('/providers', getProviders);
 router.get('/provider-settings', getProviderSettings);
