@@ -39,12 +39,14 @@ const {
     listTeacherTestSessions,
     getTestSession,
     submitTestExam,
+    getStudentAttemptStatus,
     getTestSessionResults,
     endTestSession,
 } = require('../controllers/testExamSessionController');
 
 // Student & general authenticated test session endpoints
 router.get('/test-sessions/:sessionId', protect, getTestSession);
+router.get('/test-sessions/:sessionId/attempts/:attemptId', protect, getStudentAttemptStatus);
 router.post('/test-sessions/:sessionId/submit', protect, gradingLimiter, submitTestExam);
 
 // Teacher-only grading and review endpoints

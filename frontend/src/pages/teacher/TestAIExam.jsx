@@ -417,7 +417,7 @@ const TestAIExam = () => {
         }
     };
 
-    // Create Live Student Test Session
+    // Create Live Student Test Session and navigate to dedicated results page
     const handleCreateLiveSession = async () => {
         if (selectedModels.length === 0) {
             alert('กรุณาเลือกโมเดล AI อย่างน้อย 1 ตัว');
@@ -435,52 +435,13 @@ const TestAIExam = () => {
                 durationMin: 30,
             });
 
-            setActiveSession(data.session);
-            fetchLiveResults(data.session._id);
+            navigate(`/teacher/test-ai-exam/sessions/${data.session._id}`);
         } catch (err) {
             console.error('Create test session failed:', err);
             setError(err.response?.data?.message || 'ไม่สามารถเปิดห้องสอบจำลองได้');
         } finally {
             setCreatingSession(false);
         }
-    };
-
-    // Fetch Live Results for active session
-    const fetchLiveResults = async (sessionId) => {
-        if (!sessionId) return;
-        setLoadingResults(true);
-        try {
-            const { data } = await api.get(`/grading/test-sessions/${sessionId}/results`);
-            setSessionResults(data);
-        } catch (err) {
-            console.error('Fetch session results failed:', err);
-        } finally {
-            setLoadingResults(false);
-        }
-    };
-
-    // Poll live results if session is active
-    useEffect(() => {
-        if (!activeSession?._id) return;
-        const interval = setInterval(() => {
-            fetchLiveResults(activeSession._id);
-        }, 5000);
-        return () => clearInterval(interval);
-    }, [activeSession]);
-
-    const handleCopyLink = () => {
-        if (!activeSession?._id) return;
-        const link = `${window.location.origin}/student/test-exam/${activeSession._id}`;
-        navigator.clipboard.writeText(link);
-        setCopiedLink(true);
-        setTimeout(() => setCopiedLink(false), 2000);
-    };
-
-    const handleCopyPin = () => {
-        if (!activeSession?.shortCode) return;
-        navigator.clipboard.writeText(activeSession.shortCode);
-        setCopiedPin(true);
-        setTimeout(() => setCopiedPin(false), 2000);
     };
 
     const handleOpenHistory = async () => {
@@ -497,12 +458,8 @@ const TestAIExam = () => {
     };
 
     const handleSelectPastSession = (session) => {
-        setActiveSession(session);
-        setQuestions(session.questions || []);
-        setSelectedModels(session.modelsToCompare || []);
         setShowHistoryModal(false);
-        setStep(3);
-        fetchLiveResults(session._id);
+        navigate(`/teacher/test-ai-exam/sessions/${session._id}`);
     };
 
     const exportToRealExam = () => {

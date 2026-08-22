@@ -11,7 +11,8 @@ import {
     Check,
     ArrowLeft,
     Layers,
-    RotateCcw
+    RotateCcw,
+    Loader2
 } from 'lucide-react';
 
 const StudentTakeTestExam = () => {
@@ -22,17 +23,12 @@ const StudentTakeTestExam = () => {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [session, setSession] = useState(null);
-    const [answers, setAnswers] = useState({}); // { [questionId]: string }
-    const [submittedData, setSubmittedData] = useState(null);
+    const [answers, setAnswers] = useState({});
+    
+    // Submission state
+    const [submittedAttemptId, setSubmittedAttemptId] = useState(null);
+    const [attemptData, setAttemptData] = useState(null);
     const [timeLeft, setTimeLeft] = useState(null);
-
-    const user = (() => {
-        try {
-            return JSON.parse(localStorage.getItem('user'));
-        } catch {
-            return null;
-        }
-    })();
 
     // Fetch session details
     useEffect(() => {
@@ -60,7 +56,7 @@ const StudentTakeTestExam = () => {
 
     // Timer Countdown
     useEffect(() => {
-        if (timeLeft === null || timeLeft <= 0 || submittedData) return;
+        if (timeLeft === null || timeLeft <= 0 || submittedAttemptId) return;
         const interval = setInterval(() => {
             setTimeLeft(prev => {
                 if (prev <= 1) {
@@ -72,7 +68,25 @@ const StudentTakeTestExam = () => {
             });
         }, 1000);
         return () => clearInterval(interval);
-    }, [timeLeft, submittedData]);
+    }, [timeLeft, submittedAttemptId]);
+
+    // Poll attempt status until grading is completed
+    useEffect(() => {
+        if (!submittedAttemptId || attemptData?.gradingStatus === 'completed') return;
+
+        const pollStatus = async () => {
+            try {
+                const { data } = await api.get(`/grading/test-sessions/${sessionId}/attempts/${submittedAttemptId}`);
+                setAttemptData(data);
+            } catch (err) {
+                console.error('Poll attempt error:', err);
+            }
+        };
+
+        pollStatus();
+        const interval = setInterval(pollStatus, 2500);
+        return () => clearInterval(interval);
+    }, [submittedAttemptId, attemptData?.gradingStatus, sessionId]);
 
     const formatTime = (seconds) => {
         if (seconds === null) return '--:--';
@@ -115,7 +129,7 @@ const StudentTakeTestExam = () => {
                 answers: formattedAnswers,
             });
 
-            setSubmittedData(data);
+            setSubmittedAttemptId(data.attemptId);
         } catch (err) {
             console.error('Submit test exam failed:', err);
             setError(err.response?.data?.message || 'เกิดข้อผิดพลาดในการส่งคำตอบ');
@@ -135,7 +149,7 @@ const StudentTakeTestExam = () => {
         );
     }
 
-    if (error && !session) {
+    if (error && !session && !submittedAttemptId) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                 <div className="max-w-md w-full bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center space-y-4">
@@ -155,8 +169,11 @@ const StudentTakeTestExam = () => {
         );
     }
 
-    // Success Submission Screen
-    if (submittedData) {
+    // Success & Live Polling Screen
+    if (submittedAttemptId) {
+        const isGrading = attemptData?.gradingStatus === 'grading' || !attemptData;
+        const isCompleted = attemptData?.gradingStatus === 'completed';
+
         return (
             <div className="min-h-screen bg-gray-50 py-10 px-4">
                 <div className="max-w-3xl mx-auto space-y-6">
@@ -166,8 +183,15 @@ const StudentTakeTestExam = () => {
                         </div>
                         <h1 className="text-2xl font-bold text-gray-900">ส่งคำตอบเรียบร้อยแล้ว!</h1>
                         <p className="text-sm text-gray-600 max-w-md mx-auto">
-                            คำตอบของคุณได้รับการบันทึกและประมวลผลการประเมินด้วยโมเดล AI ในระบบเรียบร้อยแล้ว
+                            คำตอบของคุณได้รับการบันทึกลงในระบบเรียบร้อยแล้ว
                         </p>
+
+                        {isGrading && (
+                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-full text-xs font-semibold animate-pulse">
+                                <Loader2 size={15} className="animate-spin" />
+                                ระบบกำลังประมวลผลการตรวจด้วยโมเดล AI ในพื้นหลัง...
+                            </div>
+                        )}
 
                         <div className="pt-4 flex justify-center gap-3">
                             <Link
@@ -179,16 +203,16 @@ const StudentTakeTestExam = () => {
                         </div>
                     </div>
 
-                    {/* AI Feedback Preview */}
-                    {submittedData.evaluations && submittedData.evaluations.length > 0 && (
+                    {/* AI Feedback Preview once completed */}
+                    {isCompleted && attemptData?.evaluations && attemptData.evaluations.length > 0 && (
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
                             <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
                                 <Sparkles size={18} className="text-indigo-600" />
-                                ข้อคิดเห็นจาก AI (AI Evaluation Summary)
+                                ผลการประเมินและข้อคิดเห็นจาก AI
                             </h2>
 
                             <div className="space-y-4">
-                                {submittedData.evaluations.map((qEval, idx) => {
+                                {attemptData.evaluations.map((qEval, idx) => {
                                     const primaryEval = qEval.modelEvaluations?.[0];
                                     return (
                                         <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2">

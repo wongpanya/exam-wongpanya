@@ -21,6 +21,11 @@ const testExamAttemptSchema = new mongoose.Schema({
         questionId: { type: String, required: true },
         selectedAnswer: { type: String, default: '' },
     }],
+    gradingStatus: {
+        type: String,
+        enum: ['pending', 'grading', 'completed', 'failed'],
+        default: 'grading',
+    },
     evaluations: [{
         questionId: { type: String, required: true },
         modelEvaluations: [{
@@ -47,6 +52,9 @@ const testExamAttemptSchema = new mongoose.Schema({
     submittedAt: {
         type: Date,
         default: Date.now,
+    },
+    completedAt: {
+        type: Date,
     },
 }, {
     timestamps: true,
