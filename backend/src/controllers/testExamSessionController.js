@@ -519,6 +519,26 @@ const getTestSessionResults = asyncHandler(async (req, res) => {
     });
 });
 
+// PATCH /api/grading/test-sessions/:sessionId/end
+const endTestSession = asyncHandler(async (req, res) => {
+    const { sessionId } = req.params;
+    const session = await TestExamSession.findById(sessionId);
+    if (!session) {
+        res.status(404);
+        throw new Error('ไม่พบห้องสอบจำลองนี้');
+    }
+
+    if (String(session.createdBy) !== String(req.user._id) && req.user.role !== 'admin') {
+        res.status(403);
+        throw new Error('คุณไม่มีสิทธิ์ปิดห้องสอบนี้');
+    }
+
+    session.status = session.status === 'active' ? 'ended' : 'active';
+    await session.save();
+
+    res.json({ message: `ห้องสอบ${session.status === 'active' ? 'เปิด' : 'ปิด'}แล้ว`, session });
+});
+
 // DELETE /api/grading/test-sessions/:sessionId
 const deleteTestSession = asyncHandler(async (req, res) => {
     const { sessionId } = req.params;
