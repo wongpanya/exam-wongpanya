@@ -25,7 +25,8 @@ import {
     Share2,
     ShieldAlert,
     BarChart3,
-    CheckCheck
+    CheckCheck,
+    Trash2
 } from 'lucide-react';
 
 const TestAIExamSessionResult = () => {
