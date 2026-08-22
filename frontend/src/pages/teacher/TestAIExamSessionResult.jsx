@@ -26,7 +26,8 @@ import {
     ShieldAlert,
     BarChart3,
     CheckCheck,
-    Trash2
+    Trash2,
+    FileText
 } from 'lucide-react';
 
 const TestAIExamSessionResult = () => {
