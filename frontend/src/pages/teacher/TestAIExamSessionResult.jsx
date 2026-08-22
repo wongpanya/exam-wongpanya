@@ -46,6 +46,7 @@ const TestAIExamSessionResult = () => {
 
     // Detailed Student Modal
     const [selectedStudentAttempt, setSelectedStudentAttempt] = useState(null);
+    const [modalModelTab, setModalModelTab] = useState('all');
 
     const fetchSessionResults = async (showRefreshSpinner = false) => {
         if (showRefreshSpinner) setRefreshing(true);
