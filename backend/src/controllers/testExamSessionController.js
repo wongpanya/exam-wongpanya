@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler');
+const TestExam = require('../models/testExamModel');
 const TestExamSession = require('../models/testExamSessionModel');
 const TestExamAttempt = require('../models/testExamAttemptModel');
 const { benchmarkAdHoc } = require('../services/grading/gradingService');
@@ -13,6 +14,91 @@ const generateShortCode = async () => {
     }
     return Math.floor(100000 + Math.random() * 900000).toString();
 };
+
+// ==================== TEST EXAM CRUD ====================
+
+// POST /api/grading/test-exams
+const createTestExam = asyncHandler(async (req, res) => {
+    const { title, description, durationMin, questions, defaultModels } = req.body;
+
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+        res.status(400);
+        throw new Error('กรุณาระบุโจทย์ข้อสอบอย่างน้อย 1 ข้อ');
+    }
+
+    const testExam = await TestExam.create({
+        title: title || 'ชุดข้อสอบจำลองทดสอบ AI',
+        description: description || '',
+        durationMin: Number(durationMin) || 30,
+        questions,
+        defaultModels: defaultModels || [],
+        createdBy: req.user._id,
+    });
+
+    res.status(201).json(testExam);
+});
+
+// GET /api/grading/test-exams
+const listTeacherTestExams = asyncHandler(async (req, res) => {
+    const exams = await TestExam.find({ createdBy: req.user._id })
+        .sort({ createdAt: -1 });
+    res.json(exams);
+});
+
+// GET /api/grading/test-exams/:id
+const getTestExam = asyncHandler(async (req, res) => {
+    const exam = await TestExam.findById(req.params.id);
+    if (!exam) {
+        res.status(404);
+        throw new Error('ไม่พบชุดข้อสอบนี้');
+    }
+    if (String(exam.createdBy) !== String(req.user._id) && req.user.role !== 'admin') {
+        res.status(403);
+        throw new Error('คุณไม่มีสิทธิ์เข้าถึงชุดข้อสอบนี้');
+    }
+    res.json(exam);
+});
+
+// PUT /api/grading/test-exams/:id
+const updateTestExam = asyncHandler(async (req, res) => {
+    const { title, description, durationMin, questions, defaultModels } = req.body;
+    const exam = await TestExam.findById(req.params.id);
+    if (!exam) {
+        res.status(404);
+        throw new Error('ไม่พบชุดข้อสอบนี้');
+    }
+    if (String(exam.createdBy) !== String(req.user._id) && req.user.role !== 'admin') {
+        res.status(403);
+        throw new Error('คุณไม่มีสิทธิ์แก้ไขชุดข้อสอบนี้');
+    }
+
+    exam.title = title ?? exam.title;
+    exam.description = description ?? exam.description;
+    exam.durationMin = durationMin ? Number(durationMin) : exam.durationMin;
+    if (questions) exam.questions = questions;
+    if (defaultModels) exam.defaultModels = defaultModels;
+
+    await exam.save();
+    res.json(exam);
+});
+
+// DELETE /api/grading/test-exams/:id
+const deleteTestExam = asyncHandler(async (req, res) => {
+    const exam = await TestExam.findById(req.params.id);
+    if (!exam) {
+        res.status(404);
+        throw new Error('ไม่พบชุดข้อสอบนี้');
+    }
+    if (String(exam.createdBy) !== String(req.user._id) && req.user.role !== 'admin') {
+        res.status(403);
+        throw new Error('คุณไม่มีสิทธิ์ลบชุดข้อสอบนี้');
+    }
+
+    await TestExam.findByIdAndDelete(req.params.id);
+    res.json({ message: 'ลบชุดข้อสอบเรียบร้อยแล้ว' });
+});
+
+// ==================== TEST SESSION CONTROLLER ====================
 
 // Background Worker: Process Multi-Model AI Evaluation for an attempt
 const processAttemptEvaluations = async (attemptId, session, answersList) => {
@@ -118,9 +204,26 @@ const processAttemptEvaluations = async (attemptId, session, answersList) => {
 
 // POST /api/grading/test-sessions
 const createTestSession = asyncHandler(async (req, res) => {
-    const { title, description, durationMin, questions, modelsToCompare } = req.body;
+    const { testExamId, title, description, durationMin, questions, modelsToCompare } = req.body;
 
-    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+    let finalQuestions = questions;
+    let finalTitle = title;
+    let finalDescription = description;
+    let finalDuration = Number(durationMin) || 30;
+
+    if (testExamId) {
+        const exam = await TestExam.findById(testExamId);
+        if (exam) {
+            finalQuestions = exam.questions;
+            finalTitle = title || exam.title;
+            finalDescription = description !== undefined ? description : exam.description;
+            finalDuration = Number(durationMin) || exam.durationMin || 30;
+            exam.sessionCount += 1;
+            await exam.save();
+        }
+    }
+
+    if (!finalQuestions || !Array.isArray(finalQuestions) || finalQuestions.length === 0) {
         res.status(400);
         throw new Error('กรุณาระบุโจทย์ข้อสอบอย่างน้อย 1 ข้อ');
     }
@@ -131,12 +234,15 @@ const createTestSession = asyncHandler(async (req, res) => {
     }
 
     const shortCode = await generateShortCode();
+    const autoStopAt = new Date(Date.now() + finalDuration * 60 * 1000);
 
     const session = await TestExamSession.create({
-        title: title || 'ห้องสอบจำลองทดสอบโมเดล AI',
-        description: description || '',
-        durationMin: Number(durationMin) || 30,
-        questions,
+        testExam: testExamId || null,
+        title: finalTitle || 'ห้องสอบจำลองทดสอบโมเดล AI',
+        description: finalDescription || '',
+        durationMin: finalDuration,
+        autoStopAt,
+        questions: finalQuestions,
         modelsToCompare,
         shortCode,
         status: 'active',
@@ -152,7 +258,12 @@ const createTestSession = asyncHandler(async (req, res) => {
 
 // GET /api/grading/test-sessions
 const listTeacherTestSessions = asyncHandler(async (req, res) => {
-    const sessions = await TestExamSession.find({ createdBy: req.user._id })
+    const { testExamId } = req.query;
+    const filter = { createdBy: req.user._id };
+    if (testExamId) filter.testExam = testExamId;
+
+    const sessions = await TestExamSession.find(filter)
+        .populate('testExam', 'title')
         .sort({ createdAt: -1 })
         .limit(50);
     res.json(sessions);
@@ -173,6 +284,12 @@ const getTestSession = asyncHandler(async (req, res) => {
         throw new Error('ไม่พบห้องสอบจำลองนี้ หรือห้องสอบได้ปิดไปแล้ว');
     }
 
+    // Auto-close if expired
+    if (session.status === 'active' && session.autoStopAt && new Date() > new Date(session.autoStopAt)) {
+        session.status = 'ended';
+        await session.save();
+    }
+
     const isTeacher = req.user && String(session.createdBy) === String(req.user._id);
     const sanitizedQuestions = session.questions.map(q => {
         if (isTeacher) return q;
@@ -188,9 +305,11 @@ const getTestSession = asyncHandler(async (req, res) => {
 
     res.json({
         _id: session._id,
+        testExam: session.testExam,
         title: session.title,
         description: session.description,
         durationMin: session.durationMin,
+        autoStopAt: session.autoStopAt,
         questions: sanitizedQuestions,
         modelsToCompare: session.modelsToCompare,
         shortCode: session.shortCode,
@@ -211,12 +330,17 @@ const submitTestExam = asyncHandler(async (req, res) => {
         throw new Error('ไม่พบห้องสอบจำลองนี้');
     }
 
-    if (session.status !== 'active') {
-        res.status(400);
-        throw new Error('ห้องสอบจำลองนี้ถูกปิดแล้ว');
+    // Check expiration
+    if (session.autoStopAt && new Date() > new Date(session.autoStopAt)) {
+        session.status = 'ended';
+        await session.save();
     }
 
-    // Check if student already submitted
+    if (session.status !== 'active') {
+        res.status(400);
+        throw new Error('ห้องสอบจำลองนี้ถูกปิดแล้ว หรือหมดเวลาทำข้อสอบแล้ว');
+    }
+
     const existingAttempt = await TestExamAttempt.findOne({ session: session._id, student: req.user._id });
     if (existingAttempt) {
         res.status(409);
@@ -234,7 +358,6 @@ const submitTestExam = asyncHandler(async (req, res) => {
         selectedAnswer: a.selectedAnswer || '',
     }));
 
-    // Create attempt with 'grading' status immediately
     const attempt = await TestExamAttempt.create({
         session: session._id,
         student: req.user._id,
@@ -245,16 +368,13 @@ const submitTestExam = asyncHandler(async (req, res) => {
         submittedAt: new Date(),
     });
 
-    // Update submittedCount
     session.submittedCount += 1;
     await session.save();
 
-    // Trigger async background multi-model grading
     setImmediate(() => {
         processAttemptEvaluations(attempt._id, session, formattedAnswers);
     });
 
-    // Respond immediately so student does not wait synchronously
     res.status(201).json({
         message: 'ส่งคำตอบเรียบร้อยแล้ว ระบบกำลังตรวจคำตอบด้วยโมเดล AI ในพื้นหลัง',
         attemptId: attempt._id,
@@ -272,7 +392,6 @@ const getStudentAttemptStatus = asyncHandler(async (req, res) => {
         throw new Error('ไม่พบข้อมูลการส่งข้อสอบนี้');
     }
 
-    // Verify ownership
     if (String(attempt.student) !== String(req.user._id) && req.user.role !== 'teacher' && req.user.role !== 'admin') {
         res.status(403);
         throw new Error('คุณไม่มีสิทธิ์ดูผลการสอบนี้');
@@ -308,7 +427,6 @@ const getTestSessionResults = asyncHandler(async (req, res) => {
         .populate('student', 'firstName lastName email')
         .sort({ submittedAt: -1 });
 
-    // Compute Multi-Student Aggregate Model Comparison
     const modelStats = new Map();
     session.modelsToCompare.forEach(m => {
         const key = `${m.provider}::${m.model}`;
@@ -409,6 +527,11 @@ const endTestSession = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+    createTestExam,
+    listTeacherTestExams,
+    getTestExam,
+    updateTestExam,
+    deleteTestExam,
     createTestSession,
     listTeacherTestSessions,
     getTestSession,

@@ -35,6 +35,11 @@ const {
 } = require('../controllers/gradingController');
 
 const {
+    createTestExam,
+    listTeacherTestExams,
+    getTestExam,
+    updateTestExam,
+    deleteTestExam,
     createTestSession,
     listTeacherTestSessions,
     getTestSession,
@@ -49,9 +54,17 @@ router.get('/test-sessions/:sessionId', protect, getTestSession);
 router.get('/test-sessions/:sessionId/attempts/:attemptId', protect, getStudentAttemptStatus);
 router.post('/test-sessions/:sessionId/submit', protect, gradingLimiter, submitTestExam);
 
-// Teacher-only grading and review endpoints
+// Teacher-only grading, test exams, and review endpoints
 router.use(protect, gradingReviewer);
 
+// Test Exams CRUD
+router.post('/test-exams', createTestExam);
+router.get('/test-exams', listTeacherTestExams);
+router.get('/test-exams/:id', getTestExam);
+router.put('/test-exams/:id', updateTestExam);
+router.delete('/test-exams/:id', deleteTestExam);
+
+// Test Sessions
 router.post('/test-sessions', createTestSession);
 router.get('/test-sessions', listTeacherTestSessions);
 router.get('/test-sessions/:sessionId/results', getTestSessionResults);

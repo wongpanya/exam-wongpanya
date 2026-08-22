@@ -1,16 +1,11 @@
 const mongoose = require('mongoose');
 
-const testExamSessionSchema = new mongoose.Schema({
-    testExam: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'TestExam',
-        default: null,
-    },
+const testExamSchema = new mongoose.Schema({
     title: {
         type: String,
         required: true,
         trim: true,
-        default: 'ห้องสอบจำลองทดสอบโมเดล AI',
+        default: 'ชุดข้อสอบจำลองทดสอบ AI',
     },
     description: {
         type: String,
@@ -19,10 +14,6 @@ const testExamSessionSchema = new mongoose.Schema({
     durationMin: {
         type: Number,
         default: 30,
-    },
-    autoStopAt: {
-        type: Date,
-        default: null,
     },
     questions: [{
         questionId: { type: String, required: true },
@@ -49,26 +40,12 @@ const testExamSessionSchema = new mongoose.Schema({
             modelPreference: { type: String, default: '' },
         },
     }],
-    modelsToCompare: [{
-        provider: { type: String, required: true },
-        model: { type: String, required: true },
-        label: { type: String, required: true },
+    defaultModels: [{
+        provider: { type: String, default: 'gemini' },
+        model: { type: String, default: 'gemini-2.5-flash' },
+        label: { type: String, default: 'Gemini 2.5 Flash' },
     }],
-    shortCode: {
-        type: String,
-        required: true,
-        index: true,
-    },
-    status: {
-        type: String,
-        enum: ['active', 'ended'],
-        default: 'active',
-    },
-    studentCount: {
-        type: Number,
-        default: 0,
-    },
-    submittedCount: {
+    sessionCount: {
         type: Number,
         default: 0,
     },
@@ -81,9 +58,8 @@ const testExamSessionSchema = new mongoose.Schema({
     timestamps: true,
 });
 
-testExamSessionSchema.index({ createdBy: 1, createdAt: -1 });
-testExamSessionSchema.index({ testExam: 1, createdAt: -1 });
+testExamSchema.index({ createdBy: 1, createdAt: -1 });
 
-const TestExamSession = mongoose.model('TestExamSession', testExamSessionSchema);
+const TestExam = mongoose.model('TestExam', testExamSchema);
 
-module.exports = TestExamSession;
+module.exports = TestExam;
