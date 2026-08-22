@@ -130,6 +130,16 @@ const TestAIExamSessionResult = () => {
         XLSX.writeFile(workbook, `AI_Benchmark_Session_${data.session.shortCode || sessionId}.xlsx`);
     };
 
+    const handleDeleteSession = async () => {
+        if (!window.confirm('คุณต้องการลบห้องสอบจำลองนี้หรือไม่?\nข้อมูลการส่งคำตอบและผลการตรวจทั้งหมดใน Session นี้จะถูกลบถาวร')) return;
+        try {
+            await api.delete(`/grading/test-sessions/${sessionId}`);
+            navigate('/teacher/test-ai-exam');
+        } catch (err) {
+            alert(err.response?.data?.message || 'เกิดข้อผิดพลาดในการลบ Session');
+        }
+    };
+
     const liveStudentUrl = `${window.location.origin}/student/test-exam/${sessionId}`;
 
     if (loading && !data) {
