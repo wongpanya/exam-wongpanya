@@ -1,6 +1,6 @@
 # คู่มือและเอกสารอธิบายการทำงาน: ระบบตรวจข้อสอบอัตนัยด้วย AI (AI Subjective Exam Grading System)
 
-เอกสารนี้อธิบายสถาปัตยกรรม, โครงสร้างข้อมูล, กระบวนการทำงาน (Workflow), ระบบความปลอดภัย, และการประเมินผลของ **ระบบตรวจข้อสอบอัตนัยด้วย AI** ซึ่งพัฒนาขึ้นเพื่อรองรับการตรวจข้อสอบข้อเขียน (Essay / Open-ended Questions) อย่างแม่นยำ โปร่งใส ปลอดภัย และมีอาจารย์เป็นผู้ควบคุมในขั้นตอนสุดท้าย (Human-in-the-loop)
+เอกสารนี้อธิบายสถาปัตยกรรม, โครงสร้างข้อมูล, กระบวนการทำงาน (Workflow), ระบบความปลอดภัย, กรอบแนวคิดทางวิชาการและการเปรียบเทียบโมเดล (Literature-Backed Model Selection), ตลอดจนการประเมินผลของ **ระบบตรวจข้อสอบอัตนัยด้วย AI** ซึ่งพัฒนาขึ้นเพื่อรองรับการตรวจข้อสอบข้อเขียน (Essay / Open-ended Questions) อย่างแม่นยำ โปร่งใส ปลอดภัย และมีอาจารย์เป็นผู้ควบคุมในขั้นตอนสุดท้าย (Human-in-the-loop)
 
 ---
 
@@ -8,11 +8,13 @@
 1. [ภาพรวมของระบบ (System Overview)](#1-ภาพรวมของระบบ-system-overview)
 2. [สถาปัตยกรรมและการไหลของข้อมูล (System Architecture & Data Flow)](#2-สถาปัตยกรรมและการไหลของข้อมูล-system-architecture--data-flow)
 3. [กระบวนการตรวจและการคำนวณคะแนนด้วย AI (AI Grading Engine)](#3-กระบวนการตรวจและการคำนวณคะแนนด้วย-ai-ai-grading-engine)
-4. [ระบบความปลอดภัยและการจัดการ API Key (Security & Key Management)](#4-ระบบความปลอดภัยและการจัดการ-api-key-security--key-management)
+4. [กรอบแนวคิดทางวิชาการและเหตุผลในการเปรียบเทียบโมเดล (Academic Framework & Model Selection)](#4-กรอบแนวคิดทางวิชาการและเหตุผลในการเปรียบเทียบโมเดล-academic-framework--model-selection)
 5. [ระบบห้องทดลองโมเดลและเปรียบเทียบ AI (Test AI Exam & Multi-Model Benchmarking)](#5-ระบบห้องทดลองโมเดลและเปรียบเทียบ-ai-test-ai-exam--multi-model-benchmarking)
-6. [โครงสร้างฐานข้อมูล (Database Schema & Collections)](#6-โครงสร้างฐานข้อมูล-database-schema--collections)
-7. [รายการ API Endpoints (API Reference)](#7-รายการ-api-endpoints-api-reference)
-8. [การตั้งค่าและการทดสอบระบบ (Configuration & Testing)](#8-การตั้งค่าและการทดสอบระบบ-configuration--testing)
+6. [ระบบความปลอดภัยและการจัดการ API Key (Security & Key Management)](#6-ระบบความปลอดภัยและการจัดการ-api-key-security--key-management)
+7. [โครงสร้างฐานข้อมูล (Database Schema & Collections)](#7-โครงสร้างฐานข้อมูล-database-schema--collections)
+8. [รายการ API Endpoints (API Reference)](#8-รายการ-api-endpoints-api-reference)
+9. [การตั้งค่าและการทดสอบระบบ (Configuration & Testing)](#9-การตั้งค่าและการทดสอบระบบ-configuration--testing)
+10. [เอกสารอ้างอิงทางวิชาการ (Academic References & Bibliography)](#10-เอกสารอ้างอิงทางวิชาการ-academic-references--bibliography)
 
 ---
 
@@ -106,17 +108,43 @@ Rules Engine จะตรวจสอบผลลัพธ์หลังกา�
 
 ---
 
-## 4. ระบบความปลอดภัยและการจัดการ API Key (Security & Key Management)
+## 4. กรอบแนวคิดทางวิชาการและเหตุผลในการเปรียบเทียบโมเดล (Academic Framework & Model Selection)
 
-### 4.1 รูปแบบ Bring-Your-Own-Key (BYOK)
-* อาจารย์แต่ละท่านสามารถระบุ API Key ของตนเองได้ (รองรับ **Google Gemini API** และ **OpenRouter API**)
-* API Key จะถูกใช้เฉพาะในการตรวจข้อสอบที่อาจารย์ท่านนั้นเป็นเจ้าของ
-* แยกสิทธิ์และข้อมูลชัดเจนระหว่างอาจารย์แต่ละท่าน (Multi-Tenant Isolation)
+ระบบนี้ไม่ใช้วิธีการเลือกโมเดลแบบตายตัว (Hardcoded Model) หรือเลือกตามกระแสนิยม แต่ใช้ **กรอบแนวคิดตามหลักฐานงานวิจัย (Evidence-Based Methodology)** โดยมีหลักการและข้อค้นพบทางวิชาการรองรับดังนี้:
 
-### 4.2 การเข้ารหัสระดับฐานข้อมูล (AES-256-GCM Encryption)
-* API Key ทุกอันจะถูกเข้ารหัสด้วยอัลกอริทึม **AES-256-GCM** ก่อนบันทึกลง MongoDB Collection `teacheraicredentials`
-* ใช้ Secret Key (`AI_CREDENTIALS_ENCRYPTION_KEY`) จาก Server Environment
-* API Key จะไม่ถูกส่งกลับไปยังฝั่ง Frontend (Browser) เด็ดขาด โดยหน้าเว็บจะเห็นเฉพาะสถานะความพร้อมและรายการ Model Catalog ที่ดึงมาได้เท่านั้น
+### 4.1 หลักฐานงานวิจัยเปรียบเทียบข้ามค่าย (Cross-Model Literature Synthesis)
+
+| ผู้พัฒนา (Provider) | งานวิจัยอ้างอิงหลัก | ข้อค้นพบสำคัญในการตรวจข้อสอบ (AES Findings) | จุดเด่นและความเหมาะสม |
+| :--- | :--- | :--- | :--- |
+| **OpenAI (GPT Family)** | *Huang et al. (2026), Jiao et al. (2026), Wang & Gayed (2024), Sapkota & Murshed (2026)* | ในชุดข้อมูล 1,768 essays งานของ Huang et al. พบว่า GPT-4o ที่ผ่านการ Calibration/Fine-tuning ให้ค่า **QWK สูงถึง 0.84** (ใกล้เคียง Human-to-Human ที่ 0.92); ในวิชาคณิตศาสตร์ GPT ให้ค่า question-level MAE ต่ำที่สุด (1.87) | ⭐⭐⭐⭐⭐ ความสอดคล้องกับผู้ตรวจมนุษย์สูงสุดและมีงานวิจัยรองรับมากที่สุด |
+| **Google (Gemini Family)** | *Oğuz (2025), Jiao et al. (2026), Sapkota & Murshed (2026)* | งานของ Oğuz (348 essays) พบว่าเมื่อข้อสอบมีภาษาเปรียบเปรย/สำนวน (Idioms) **Gemini มี Inter-rater Reliability กับมนุษย์ดีที่สุด** และในงานของ Sapkota พบว่า Gemini ให้คะแนนรวม MAE แม่นยำที่สุด (8.00) | ⭐⭐⭐⭐⭐ ความเร็วการประมวลผลสูงมาก (High Throughput) และเข้าใจภาษาธรรมชาติที่มีความหมายแฝงได้ดี |
+| **Anthropic (Claude Family)** | *Jiao et al. (2026), Liu et al. (2026)* | งานของ Jiao et al. (เปรียบเทียบ 10 โมเดล) พบว่า Claude 3.5 Sonnet อยู่ในกลุ่ม Top-Tier ร่วมกับ GPT-4o และ Gemini 1.5 Pro ที่มี Accuracy สูง, Consistency ดี, และ Rater Effects ต่ำ | ⭐⭐⭐⭐½ คุณภาพการตรวจและให้เหตุผลมีมาตรฐานสูง |
+| **DeepSeek** | *Jiao et al. (2026), Oğuz (2025), Zhou (2026)* | มี Consistency สูงและต้นทุนราคาประหยัดมาก แม้ความแม่นยำด้านสำนวนภาษาอาจลดลงเล็กน้อยเทียบกับกลุ่ม Commercial Frontier | ⭐⭐⭐⭐ เหมาะเป็น Cost-Performance Baseline สำหรับการตรวจปริมาณมาก |
+| **Alibaba Qwen** | *BEA 2026 Shared Task on Rubric-based Scoring (2026)* | ในงานแข่งขันระดับนานาชาติ **Fine-tuned Qwen2.5-32B ทำคะแนน QWK ได้ 0.769 ซึ่งชนะ Gemini 3 Flash (0.748)** โดยใช้ Checklist-style Reasoning ร่วมกับ Rubric | ⭐⭐⭐⭐⭐ เหมาะสำหรับอนาคตในการ Fine-tune ด้วยชุดข้อมูลเฉพาะของมหาวิทยาลัย |
+| **Meta Llama / xAI Grok / Mistral** | *Liu et al. (2026), Zhou (2026), Gaggioli et al. (2025)* | มีรายงานการทดสอบ แต่โมเดลทั่วไปยังพบปรากฏการณ์ Centrality Effect / Score Compression หรือความสอดคล้องต่ำในข้อสอบที่ต้องใช้การตีความเฉพาะทาง | ⭐⭐⭐ เหมาะเป็นตัวเปรียบเทียบเสริม (Secondary Comparator) |
+
+### 4.2 ทำไมระบบต้องมีห้องทดลองเปรียบเทียบโมเดล (`/teacher/test-ai-exam`)?
+1. **ไม่มีโมเดลใดชนะในทุกบริบท**: งานวิจัยยืนยันว่า โมเดลที่ชนะในข้อสอบภาษาอังกฤษ อาจไม่ได้คะแนนสูงสุดในข้อสอบคณิตศาสตร์ หรือข้อสอบวิทยาการคอมพิวเตอร์
+2. **Criterion-Referenceability สำคัญกว่าชื่อโมเดล**: งานวิจัยปี 2026 (arXiv:2603.14732) พบว่าการแตกเกณฑ์ย่อย (`criteria[]`) ที่วัดผลได้ชัดเจน ช่วยเพิ่มความแม่นยำของ AI จาก correlation $\rho \approx 0.1$ ใน essay กว้าง ๆ ขึ้นเป็น $\rho = 0.88$ ใน structured criteria
+3. **การตัดสินผู้ชนะต้องอิงอาจารย์จริง (Teacher Ground Truth)**: ระบบจึงเปิดให้อาจารย์ทดลองกับคำตอบจริงของนักศึกษา เพื่อให้ได้โมเดลที่สอดคล้องกับมาตรฐานของวิชานั้น ๆ มากที่สุด
+
+### 4.3 สูตรและดัชนีชี้วัดความเหมาะสมของโมเดล (Model Suitability Score Formula)
+
+ระบบประเมินความเหมาะสมของแต่ละโมเดลด้วย Matrix ถ่วงน้ำหนัก 9 มิติ:
+
+$$\text{Model Suitability Score} = \sum (W_i \times M_i)$$
+
+| มิติการประเมิน (Metric) | น้ำหนัก (Weight) | คำอธิบาย |
+| :--- | :---: | :--- |
+| **Quadratic Weighted Kappa (QWK) กับอาจารย์** | **30%** | ความสอดคล้องของการจัดอันดับคะแนนเทียบกับคะแนนอาจารย์จริง |
+| **Mean Absolute Error (MAE) กับอาจารย์** | **15%** | ผลต่างเฉลี่ยของคะแนนระหว่าง AI และอาจารย์ (ยิ่งต่ำยิ่งดี) |
+| **Rubric Criterion Alignment** | **15%** | ความแม่นยำในการให้คะแนนสอดคล้องกับเกณฑ์ย่อยแต่ละข้อ |
+| **Evidence Validity Score** | **10%** | ความถูกต้องของข้อความหลักฐานที่ดึงมาจากคำตอบนักศึกษาจริง |
+| **Repeatability / Regrade Consistency** | **10%** | ความสม่ำเสมอของคะแนนเมื่อให้โมเดลเดิมตรวจคำตอบเดิมซ้ำ |
+| **False Pass / False Fail Rate** | **5%** | อัตราความผิดพลาดในการตัดสินผ่าน/ไม่ผ่าน |
+| **Processing Latency (Speed)** | **5%** | ความเร็วเฉลี่ยในการประมวลผลต่อคำถาม (ms) |
+| **Inference Cost per 1,000 Answers** | **5%** | ต้นทุนค่า Token ต่อนักศึกษา 1,000 คน |
+| **JSON/Schema Success Rate** | **5%** | ความสมบูรณ์ของโครงสร้างข้อมูลและไม่เกิด Error |
 
 ---
 
@@ -147,7 +175,21 @@ graph LR
 
 ---
 
-## 6. โครงสร้างฐานข้อมูล (Database Schema & Collections)
+## 6. ระบบความปลอดภัยและการจัดการ API Key (Security & Key Management)
+
+### 6.1 รูปแบบ Bring-Your-Own-Key (BYOK)
+* อาจารย์แต่ละท่านสามารถระบุ API Key ของตนเองได้ (รองรับ **Google Gemini API** และ **OpenRouter API**)
+* API Key จะถูกใช้เฉพาะในการตรวจข้อสอบที่อาจารย์ท่านนั้นเป็นเจ้าของ
+* แยกสิทธิ์และข้อมูลชัดเจนระหว่างอาจารย์แต่ละท่าน (Multi-Tenant Isolation)
+
+### 6.2 การเข้ารหัสระดับฐานข้อมูล (AES-256-GCM Encryption)
+* API Key ทุกอันจะถูกเข้ารหัสด้วยอัลกอริทึม **AES-256-GCM** ก่อนบันทึกลง MongoDB Collection `teacheraicredentials`
+* ใช้ Secret Key (`AI_CREDENTIALS_ENCRYPTION_KEY`) จาก Server Environment
+* API Key จะไม่ถูกส่งกลับไปยังฝั่ง Frontend (Browser) เด็ดขาด โดยหน้าเว็บจะเห็นเฉพาะสถานะความพร้อมและรายการ Model Catalog ที่ดึงมาได้เท่านั้น
+
+---
+
+## 7. โครงสร้างฐานข้อมูล (Database Schema & Collections)
 
 ```mermaid
 erDiagram
@@ -159,7 +201,7 @@ erDiagram
     GRADING_RESULTS ||--o{ GRADING_REVIEW_LOGS : audits
 ```
 
-### 6.1 Collections หลักสำหรับระบบตรวจ AI
+### 7.1 Collections หลักสำหรับระบบตรวจ AI
 
 | Collection Name | หน้าที่และการเก็บข้อมูล |
 | :--- | :--- |
@@ -173,9 +215,9 @@ erDiagram
 
 ---
 
-## 7. รายการ API Endpoints (API Reference)
+## 8. รายการ API Endpoints (API Reference)
 
-### 7.1 การจัดการ Provider & Credentials (`/api/grading/...`)
+### 8.1 การจัดการ Provider & Credentials (`/api/grading/...`)
 * `GET /api/grading/providers` - ดูรายชื่อ Provider ที่ระบบรองรับ
 * `GET /api/grading/provider-settings` - ดูการตั้งค่า Key และ Model ปัจจุบันของอาจารย์
 * `PUT /api/grading/provider-settings/:provider/key` - บันทึกและตรวจสอบ API Key ใหม่
@@ -183,14 +225,14 @@ erDiagram
 * `PATCH /api/grading/provider-settings/:provider/model` - เปลี่ยน Model เริ่มต้นของ Provider
 * `DELETE /api/grading/provider-settings/:provider/key` - ลบ API Key
 
-### 7.2 การตรวจข้อสอบจริง (`/api/grading/...`)
+### 8.2 การตรวจข้อสอบจริง (`/api/grading/...`)
 * `POST /api/grading/grade` - สั่งตรวจคำตอบข้อสอบอัตนัย (รองรับทั้งคำตอบจริงและทดลองตรวจ)
 * `GET /api/grading/:attemptId/questions/:questionId` - ดูผลการตรวจ AI และเกณฑ์ Rubric ของคำตอบนั้น
 * `POST /api/grading/:attemptId/questions/:questionId/regrade` - สั่ง AI ตรวจคำตอบใหม่อีกครั้ง
 * `PATCH /api/grading/:attemptId/questions/:questionId/review` - อาจารย์บันทึกยืนยัน หรือปรับแก้คะแนน
 * `GET /api/grading/:attemptId/questions/:questionId/history` - ดูประวัติการเรียก AI และประวัติการปรับคะแนนทั้งหมด
 
-### 7.3 ระบบห้องทดลองข้อสอบจำลอง (`/api/grading/...`)
+### 8.3 ระบบห้องทดลองข้อสอบจำลอง (`/api/grading/...`)
 * `GET /api/grading/test-exams` - ดูรายการชุดข้อสอบทดลองทั้งหมดของอาจารย์
 * `POST /api/grading/test-exams` - สร้างชุดข้อสอบทดลองใหม่
 * `GET /api/grading/test-exams/:testExamId` - ดึงรายละเอียดชุดข้อสอบทดลอง
@@ -202,16 +244,16 @@ erDiagram
 * `PATCH /api/grading/test-sessions/:sessionId/end` - ปิดหรือเปิดห้องสอบจำลอง
 * `DELETE /api/grading/test-sessions/:sessionId` - ลบ Session และข้อมูลการส่งคำตอบทั้งหมด
 
-### 7.4 ฝั่งนักเรียนเข้าสอบจำลอง (`/api/grading/...`)
+### 8.4 ฝั่งนักเรียนเข้าสอบจำลอง (`/api/grading/...`)
 * `GET /api/grading/test-sessions/:sessionId/public` - ดึงข้อมูลโจทย์และสถานะห้องสอบเพื่อเริ่มทำข้อสอบ
 * `POST /api/grading/test-sessions/:sessionId/submit` - ส่งคำตอบข้อสอบจำลอง (ตอบกลับทันทีพร้อม `attemptId`)
 * `GET /api/grading/test-sessions/:sessionId/attempts/:attemptId` - นักเรียน Poll ตรวจสอบสถานะการตรวจจนกว่าจะเสร็จ
 
 ---
 
-## 8. การตั้งค่าและการทดสอบระบบ (Configuration & Testing)
+## 9. การตั้งค่าและการทดสอบระบบ (Configuration & Testing)
 
-### 8.1 การตั้งค่า Environment Variables (`backend/.env`)
+### 9.1 การตั้งค่า Environment Variables (`backend/.env`)
 ```env
 # Provider Configuration
 AI_PRIMARY_PROVIDER=gemini
@@ -234,15 +276,30 @@ AI_MAX_REGRADES_PER_ANSWER=5
 AI_STORE_RAW_RESPONSES=false
 ```
 
-### 8.2 การรัน Automated Unit Tests
+### 9.2 การรัน Automated Unit Tests
 ระบบมี Automated Test Suite ครอบคลุมทั้ง Router, Fallback, Validation, Prompt Builder, และ Rule Engine:
 ```bash
 cd backend
 npm test
 ```
 
-### 8.3 การทดสอบระบบฝั่ง Frontend Build
+### 9.3 การทดสอบระบบฝั่ง Frontend Build
 ```bash
 cd frontend
 npm run build
 ```
+
+---
+
+## 10. เอกสารอ้างอิงทางวิชาการ (Academic References & Bibliography)
+
+1. **Jiao, H., Song, D., & Lee, W.-C. (2026).** Evaluating Rater Effects of Large Language Models in Automated Essay Scoring: GPT, Claude, Gemini, and DeepSeek. *Educational Measurement: Issues and Practice*. https://doi.org/10.1111/emip.70018
+2. **Huang, Y., Palermo, C., & Wilson, J. (2026).** Accuracy and fairness of generative AI in automated essay scoring: Comparing GPT-4o, feature-based models, and human raters. *Assessing Writing*, 69, 101047. https://doi.org/10.1016/j.asw.2026.101047
+3. **Wang, Z., & Gayed, J. M. (2024).** Large language models and automated essay scoring of English language learner writing. *Computers and Education: Artificial Intelligence*, 6, 100234. https://doi.org/10.1016/j.caeai.2024.100234
+4. **Liu, T., Ye, L., & Yan, W. (2026).** A framework for evaluation of large language models in essay assessment. *Computers and Education: Artificial Intelligence*, 10, 100565. https://doi.org/10.1016/j.caeai.2026.100565
+5. **Oğuz, E. (2025).** Can generative AI figure out figurative language? The influence of idioms on essay scoring by ChatGPT, Gemini, and DeepSeek. *Assessing Writing*, 66, 100981. https://doi.org/10.1016/j.asw.2025.100981
+6. **Gombert, S., et al. (2026).** BEA 2026 Shared Task on Rubric-based Short Answer Scoring. *Proceedings of the 21st Workshop on Innovative Use of NLP for Building Educational Applications (BEA 2026)*. ACL Anthology. https://doi.org/10.18653/v1/2026.bea-1.85
+7. **Zhou, X. (2026).** Evaluating AI-Based Automated Essay Scoring Through Signal Detection Theory. *Applied Psychological Measurement*. https://doi.org/10.1177/01466216261471171
+8. **Yoshida, L. (2025).** Do We Need a Detailed Rubric for Automated Essay Scoring using Large Language Models? *arXiv preprint arXiv:2505.01035*. https://doi.org/10.48550/arXiv.2505.01035
+9. **Gaggioli, A., et al. (2025).** Assessing the Reliability and Validity of Large Language Models for Automated Assessment of Student Essays in Higher Education. *arXiv preprint arXiv:2508.02442*. https://doi.org/10.48550/arXiv.2508.02442
+10. **Sapkota, R., & Murshed, M. (2026).** LLMs as Teaching Assistants for Mathematics Exam Grading. *arXiv preprint arXiv:2607.01247*. https://doi.org/10.48550/arXiv.2607.01247
