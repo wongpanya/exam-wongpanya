@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
-import { ArrowLeft, Search, Download, Clock, CheckCircle, AlertTriangle, XCircle, FileText } from 'lucide-react';
+import { ArrowLeft, Search, Download, Clock, CheckCircle, AlertTriangle, XCircle, FileText, Sparkles, Eye } from 'lucide-react';
 
 const ExamAttempts = () => {
     const { id } = useParams();
@@ -18,13 +18,6 @@ const ExamAttempts = () => {
     // Pagination states
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
-
-    const getConfig = () => {
-        const user = JSON.parse(localStorage.getItem('user'));
-        return {
-            headers: { Authorization: `Bearer ${user.token}` },
-        };
-    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -103,6 +96,10 @@ const ExamAttempts = () => {
             const questionAnswers = examDetails?.questions?.map(q => {
                 const studentAnswer = a.answers?.find(ans => ans.questionId === q.questionId);
                 if (!studentAnswer || !studentAnswer.selectedAnswer) return '-';
+                if (q.type === 'text' && q.gradingMode === 'ai') {
+                    const grading = a.gradingResults?.find(result => result.questionId === q.questionId);
+                    return grading?.finalScore ?? '-';
+                }
                 const normalizeAnswer = (answer) => String(answer || '').split(',').filter(Boolean).sort().join(',');
                 return normalizeAnswer(studentAnswer.selectedAnswer) === normalizeAnswer(q.correctAnswer) ? '1' : '0';
             }) || [];
@@ -165,6 +162,56 @@ const ExamAttempts = () => {
             default:
                 return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1 w-fit"><Clock size={12} /> กำลังทำ</span>;
         }
+    };
+
+    const getGradingStatusBadge = (attempt) => {
+        const status = attempt.gradingStatus;
+        const resultForStatus = (statuses) => (attempt.gradingResults || []).filter(result => statuses.includes(result.status));
+        const questionLabel = (result) => {
+            const index = examDetails?.questions?.findIndex(question => question.questionId === result.questionId) ?? -1;
+            return index >= 0 ? `ข้อ ${index + 1}` : result.questionId;
+        };
+        const questionList = (statuses) => resultForStatus(statuses).map(questionLabel).join(', ');
+        if (status === 'needs-review') {
+            return (
+                <div>
+                    <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><AlertTriangle size={12} /> รอตรวจซ้ำ</span>
+                    <p className="mt-1 text-xs font-medium text-amber-700">{questionList(['needs-review']) || 'มีข้อที่ต้องตรวจ'}</p>
+                </div>
+            );
+        }
+        if (status === 'pending' || status === 'processing') {
+            return (
+                <div>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><Sparkles size={12} /> กำลังตรวจ</span>
+                    {questionList(['pending', 'processing']) && <p className="mt-1 text-xs text-blue-700">{questionList(['pending', 'processing'])}</p>}
+                </div>
+            );
+        }
+        if (status === 'failed') {
+            return (
+                <div>
+                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><XCircle size={12} /> ตรวจไม่สำเร็จ</span>
+                    <p className="mt-1 text-xs font-medium text-red-700">{questionList(['failed']) || 'มีข้อที่ต้องตรวจ'}</p>
+                </div>
+            );
+        }
+        if (status === 'completed') {
+            return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold inline-flex items-center gap-1"><CheckCircle size={12} /> ตรวจแล้ว</span>;
+        }
+        return <span className="text-xs text-gray-400">ไม่ใช้ AI</span>;
+    };
+
+    const openGrading = (attempt, result) => {
+        const query = sessionId ? `?sessionId=${sessionId}` : '';
+        navigate(`/teacher/exams/${id}/attempts/${attempt._id}/grading/${result.questionId}${query}`);
+    };
+
+    const openGradingAll = (attempt) => {
+        const firstResult = attempt.gradingResults?.[0];
+        if (!firstResult) return;
+        const query = sessionId ? `?sessionId=${sessionId}&view=all` : '?view=all';
+        navigate(`/teacher/exams/${id}/attempts/${attempt._id}/grading/${firstResult.questionId}${query}`);
     };
 
     if (loading) return <div className="p-8 text-center text-gray-500">Loading attempts...</div>;
@@ -252,27 +299,40 @@ const ExamAttempts = () => {
                             <tr>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">นักเรียน</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">สถานะ</th>
-                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ทำไปแล้ว</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">คะแนน</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">AI Grading</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">เวลาที่ใช้</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ส่งเมื่อ</th>
+                                <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">ตรวจคำตอบ</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {currentAttempts.length === 0 ? (
                                 <tr>
-                                    <td colSpan="6" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
+                                    <td colSpan="7" className="px-6 py-8 text-center text-gray-500">ไม่พบข้อมูล</td>
                                 </tr>
                             ) : (
-                                currentAttempts.map((attempt) => (
+                                currentAttempts.map((attempt) => {
+                                    const reviewResults = (attempt.gradingResults || []).filter(result => (
+                                        result.status === 'needs-review' || result.status === 'failed'
+                                    ));
+                                    const firstResult = reviewResults[0] || attempt.gradingResults?.[0];
+                                    const reviewLabels = reviewResults.map((result) => {
+                                        const index = examDetails?.questions?.findIndex(question => question.questionId === result.questionId) ?? -1;
+                                        return index >= 0 ? `ข้อ ${index + 1}` : result.questionId;
+                                    });
+                                    return (
                                     <tr key={attempt._id} className="hover:bg-gray-50 transition">
                                         <td className="px-6 py-4">
-                                            <div className="flex items-center gap-3">
+                                            <div 
+                                                onClick={() => firstResult && openGradingAll(attempt)}
+                                                className={`flex items-center gap-3 ${firstResult ? 'cursor-pointer' : ''}`}
+                                            >
                                                 <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold">
                                                     {attempt.student.firstName.charAt(0)}
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-medium text-gray-900">{attempt.student.firstName} {attempt.student.lastName}</p>
+                                                    <p className={`text-sm font-medium text-gray-900 ${firstResult ? 'hover:underline hover:text-indigo-600' : ''}`}>{attempt.student.firstName} {attempt.student.lastName}</p>
                                                     <p className="text-xs text-gray-500">{attempt.student.email}</p>
                                                 </div>
                                             </div>
@@ -281,17 +341,14 @@ const ExamAttempts = () => {
                                             {getStatusBadge(attempt.status)}
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className="text-sm font-medium text-gray-900">
-                                                {attempt.answers ? attempt.answers.filter(ans => ans.selectedAnswer && ans.selectedAnswer.trim() !== '').length : 0}
-                                                <span className="text-gray-400 text-xs font-normal"> / {examDetails?.questions?.length || 0}</span>
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
                                             {attempt.score !== null ? (
                                                 <span className="font-bold text-gray-900">{attempt.score} <span className="text-gray-400 text-xs font-normal">/ {attempt.totalPoints}</span></span>
                                             ) : (
                                                 <span className="text-gray-400">-</span>
                                             )}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            {getGradingStatusBadge(attempt)}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">
                                             {getDuration(attempt.startedAt, attempt.submittedAt)}
@@ -299,8 +356,20 @@ const ExamAttempts = () => {
                                         <td className="px-6 py-4 text-sm text-gray-600">
                                             {formatDateTime(attempt.submittedAt)}
                                         </td>
+                                        <td className="px-6 py-4">
+                                            {firstResult ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openGrading(attempt, firstResult)}
+                                                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${reviewResults.length > 0 ? 'bg-amber-50 text-amber-800 hover:bg-amber-100' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}
+                                                >
+                                                    <Eye size={13} /> {reviewResults.length > 0 ? `ตรวจ ${reviewLabels.join(', ')}` : 'ดูผล AI'}
+                                                </button>
+                                            ) : <span className="text-gray-400">-</span>}
+                                        </td>
                                     </tr>
-                                ))
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>

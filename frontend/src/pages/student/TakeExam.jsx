@@ -8,13 +8,14 @@ import { Clock, Send, AlertTriangle, CheckCircle, Shield, Save, Lock, Wifi, Wifi
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
 const DEBOUNCE_SAVE_MS = 2000;
 const STATUS_CHECK_INTERVAL = 15000; // 15 seconds for suspension check (optimized from 5s)
+const MAX_ESSAY_CHARS = 12000;
+const hasAnswer = value => typeof value === 'string' && value.trim().length > 0;
 
 const TakeExam = () => {
     const { examId } = useParams();
     const navigate = useNavigate();
     const { showAlert, showConfirm } = useDialog();
     const [exam, setExam] = useState(null);
-    const [attempt, setAttempt] = useState(null);
     const [sessionInfo, setSessionInfo] = useState(null);
     const [answers, setAnswers] = useState({});
     const [loading, setLoading] = useState(true);
@@ -48,13 +49,6 @@ const TakeExam = () => {
     // Anti-cheat hook
     const { cheatCount, isTabHidden, warnings, resetCheatStatus } = useAntiCheat(examId, !submitted && !suspended, () => setSuspended(true));
 
-    const getConfig = () => {
-        const user = JSON.parse(localStorage.getItem('user'));
-        return {
-            headers: { Authorization: `Bearer ${user.token}` },
-        };
-    };
-
     // localStorage key for backup
     const storageKey = `exam_answers_${examId}`;
 
@@ -65,7 +59,7 @@ const TakeExam = () => {
                 answers: ans,
                 savedAt: new Date().toISOString(),
             }));
-        } catch (e) {
+        } catch {
             // ignore
         }
     }, [storageKey]);
@@ -78,7 +72,7 @@ const TakeExam = () => {
                 const parsed = JSON.parse(saved);
                 return parsed.answers || {};
             }
-        } catch (e) {
+        } catch {
             // ignore
         }
         return null;
@@ -136,7 +130,6 @@ const TakeExam = () => {
             try {
                 const { data } = await api.get(`/exam-sessions/${examId}/attempt`);
                 setExam(data.exam);
-                setAttempt(data.attempt);
                 setSessionInfo(data.session);
 
                 // Initialize answers from existing attempt
@@ -165,6 +158,7 @@ const TakeExam = () => {
                     setResult({
                         score: data.attempt.score,
                         totalPoints: data.attempt.totalPoints,
+                        gradingStatus: data.attempt.gradingStatus,
                     });
                     localStorage.removeItem(storageKey);
                 } else if (data.attempt.status === 'suspended') {
@@ -229,7 +223,7 @@ const TakeExam = () => {
 
     // Save to localStorage on beforeunload
     useEffect(() => {
-        const handleBeforeUnload = (e) => {
+        const handleBeforeUnload = () => {
             if (!submitted && !suspended) {
                 saveToLocalStorage(answersRef.current);
                 autoSaveToServer();
@@ -276,7 +270,7 @@ const TakeExam = () => {
     const handleSubmit = useCallback(async (force = false) => {
         if (submitting || submitted || suspended) return;
 
-        const answered = Object.keys(answersRef.current).length;
+        const answered = Object.values(answersRef.current).filter(hasAnswer).length;
         const total = exam?.questions?.length || 0;
 
         // Block if not all answered (unless forced by timer)
@@ -310,6 +304,8 @@ const TakeExam = () => {
                 score: data.score,
                 totalPoints: data.totalPoints,
                 percentage: data.percentage,
+                gradingStatus: data.gradingStatus,
+                needsHumanReview: data.needsHumanReview,
             });
 
             localStorage.removeItem(storageKey);
@@ -342,7 +338,7 @@ const TakeExam = () => {
                     setSuspended(false);
                 }
             }
-        } catch (err) {
+        } catch {
             // Silently ignore — next poll will retry
         }
     }, [examId, suspended, resetCheatStatus]);
@@ -386,6 +382,10 @@ const TakeExam = () => {
 
     // Result screen
     if (submitted && result) {
+        const awaitingGrade = ['pending', 'processing'].includes(result.gradingStatus);
+        const awaitingReview = result.gradingStatus === 'needs-review';
+        const gradingFailed = result.gradingStatus === 'failed';
+        const showFinalScore = !awaitingGrade && !awaitingReview && !gradingFailed && result.score !== null;
         return (
             <div className="max-w-lg mx-auto text-center py-12">
                 <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
@@ -394,6 +394,29 @@ const TakeExam = () => {
                     <p className="text-gray-500 mb-6">{exam.title}</p>
 
                     <div className="bg-gray-50 rounded-xl p-6 mb-6">
+                        {awaitingGrade && (
+                            <div>
+                                <Clock className="mx-auto text-indigo-500 mb-2" size={32} />
+                                <p className="font-semibold text-gray-900">กำลังตรวจคำตอบอัตนัย</p>
+                                <p className="text-sm text-gray-500 mt-1">ระบบรับคำตอบแล้ว คะแนนจะแสดงเมื่อการตรวจเสร็จ</p>
+                            </div>
+                        )}
+                        {awaitingReview && (
+                            <div>
+                                <Shield className="mx-auto text-amber-500 mb-2" size={32} />
+                                <p className="font-semibold text-gray-900">รออาจารย์ตรวจยืนยัน</p>
+                                <p className="text-sm text-gray-500 mt-1">ระบบจะยังไม่แสดงคะแนนจนกว่าจะตรวจยืนยันเรียบร้อย</p>
+                            </div>
+                        )}
+                        {gradingFailed && (
+                            <div>
+                                <AlertTriangle className="mx-auto text-red-500 mb-2" size={32} />
+                                <p className="font-semibold text-gray-900">รออาจารย์ดำเนินการตรวจ</p>
+                                <p className="text-sm text-gray-500 mt-1">การตรวจอัตโนมัติไม่สำเร็จ แต่คำตอบถูกบันทึกแล้ว</p>
+                            </div>
+                        )}
+                        {showFinalScore && (
+                            <>
                         <p className="text-4xl font-bold text-indigo-600">
                             {result.score} / {result.totalPoints}
                         </p>
@@ -410,6 +433,8 @@ const TakeExam = () => {
                                 <p className="text-sm text-gray-500 mt-1">{result.percentage}%</p>
                             </div>
                         )}
+                            </>
+                        )}
                     </div>
 
                     <button
@@ -423,7 +448,7 @@ const TakeExam = () => {
         );
     }
 
-    const answeredCount = Object.keys(answers).length;
+    const answeredCount = Object.values(answers).filter(hasAnswer).length;
     const totalQuestions = exam?.questions?.length || 0;
     const totalPages = Math.ceil(totalQuestions / questionsPerPage);
     const currentQuestions = exam?.questions?.slice(
@@ -556,7 +581,7 @@ const TakeExam = () => {
                 <div className="flex flex-wrap gap-2">
                     {exam.questions.map((q, index) => {
                         const pageNum = Math.ceil((index + 1) / questionsPerPage);
-                        const isAnswered = !!answers[q.questionId];
+                        const isAnswered = hasAnswer(answers[q.questionId]);
                         const isOnCurrentPage = pageNum === currentPage;
                         return (
                             <button
@@ -596,37 +621,59 @@ const TakeExam = () => {
                                 </span>
                             </div>
 
-                            {q.type === 'checkbox' && (
-                                <p className="text-xs text-indigo-600 mb-3">เลือกได้หลายคำตอบ</p>
+                            {q.type === 'text' ? (
+                                <div>
+                                    <label htmlFor={`essay-${q.questionId}`} className="block text-sm font-medium text-gray-700 mb-2">
+                                        คำตอบของคุณ
+                                    </label>
+                                    <textarea
+                                        id={`essay-${q.questionId}`}
+                                        value={answers[q.questionId] || ''}
+                                        onChange={(event) => selectAnswer(q.questionId, event.target.value, q.type)}
+                                        maxLength={MAX_ESSAY_CHARS}
+                                        rows={10}
+                                        disabled={suspended}
+                                        placeholder="พิมพ์คำตอบอัตนัยที่นี่..."
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none resize-y text-sm leading-6 disabled:bg-gray-100"
+                                    />
+                                    <p className="text-xs text-gray-400 text-right mt-1">
+                                        {(answers[q.questionId] || '').length.toLocaleString()} / {MAX_ESSAY_CHARS.toLocaleString()} ตัวอักษร
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    {q.type === 'checkbox' && (
+                                        <p className="text-xs text-indigo-600 mb-3">เลือกได้หลายคำตอบ</p>
+                                    )}
+                                    <div className="space-y-2">
+                                        {q.choices.map((choice) => {
+                                            const isSelected = q.type === 'checkbox'
+                                                ? String(answers[q.questionId] || '').split(',').includes(choice.value)
+                                                : answers[q.questionId] === choice.value;
+                                            return (
+                                                <button
+                                                    key={choice.value}
+                                                    type="button"
+                                                    onClick={() => selectAnswer(q.questionId, choice.value, q.type)}
+                                                    disabled={suspended}
+                                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-left transition-all text-sm ${isSelected
+                                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
+                                                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700'
+                                                        }`}
+                                                >
+                                                    <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center flex-shrink-0 font-bold text-xs ${isSelected
+                                                        ? 'bg-indigo-500 text-white'
+                                                        : 'bg-gray-200 text-gray-500'
+                                                        }`}>
+                                                        {q.type === 'checkbox' && isSelected ? <CheckCircle size={16} /> : choice.value.toUpperCase()}
+                                                    </div>
+                                                    <span>{choice.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </>
                             )}
-
-                            <div className="space-y-2">
-                                {q.choices.map((choice) => {
-                                    const isSelected = q.type === 'checkbox'
-                                        ? String(answers[q.questionId] || '').split(',').includes(choice.value)
-                                        : answers[q.questionId] === choice.value;
-                                    return (
-                                        <button
-                                            key={choice.value}
-                                            type="button"
-                                            onClick={() => selectAnswer(q.questionId, choice.value, q.type)}
-                                            disabled={suspended}
-                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-left transition-all text-sm ${isSelected
-                                                ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
-                                                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700'
-                                                }`}
-                                        >
-                                            <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center flex-shrink-0 font-bold text-xs ${isSelected
-                                                ? 'bg-indigo-500 text-white'
-                                                : 'bg-gray-200 text-gray-500'
-                                                }`}>
-                                                {q.type === 'checkbox' && isSelected ? <CheckCircle size={16} /> : choice.value.toUpperCase()}
-                                            </div>
-                                            <span>{choice.label}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
                         </div>
                     );
                 })}

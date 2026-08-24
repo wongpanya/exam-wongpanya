@@ -1,12 +1,19 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle, KeyRound, FlaskConical } from 'lucide-react';
 import api from '../config/api';
 
 const TeacherLayout = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const [user, setUser] = useState(null);
+    const [user] = useState(() => {
+        try {
+            const storedUser = localStorage.getItem('user');
+            return storedUser ? JSON.parse(storedUser) : null;
+        } catch {
+            return null;
+        }
+    });
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [announcement, setAnnouncement] = useState(null);
@@ -72,18 +79,14 @@ const TeacherLayout = () => {
     }, []);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (!storedUser) {
+        if (!user) {
             navigate('/login');
             return;
         }
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser.role !== 'teacher') {
+        if (user.role !== 'teacher') {
             navigate('/');
-            return;
         }
-        setUser(parsedUser);
-    }, [navigate]);
+    }, [navigate, user]);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
@@ -111,6 +114,16 @@ const TeacherLayout = () => {
             path: '/teacher/exams/create',
             icon: <PlusCircle size={20} />,
         },
+        {
+            name: 'ตั้งค่า AI Provider',
+            path: '/teacher/ai-settings',
+            icon: <KeyRound size={20} />,
+        },
+        {
+            name: 'ทดลองโมเดล AI',
+            path: '/teacher/test-ai-exam',
+            icon: <FlaskConical size={20} />,
+        },
     ];
 
     const isActive = (path) => {
@@ -124,42 +137,37 @@ const TeacherLayout = () => {
 
     return (
         <div className="flex min-h-screen bg-gray-50">
-            {/* Mobile Header */}
-            {isMobile && (
-                <div className="fixed top-0 left-0 right-0 z-40 bg-gray-900 text-white h-14 flex items-center justify-between px-4 shadow-lg">
-                    <h1 className="text-lg font-bold text-indigo-400">Exam</h1>
-                    <button
-                        onClick={() => setSidebarOpen(!sidebarOpen)}
-                        className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition"
-                    >
-                        {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
-                    </button>
-                </div>
-            )}
+            {/* Mobile Header (Only visible on screens smaller than md) */}
+            <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-gray-900 text-white h-14 flex items-center justify-between px-4 shadow-lg">
+                <h1 className="text-lg font-bold text-indigo-400">Exam</h1>
+                <button
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer"
+                >
+                    {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+                </button>
+            </div>
 
             {/* Overlay for mobile */}
-            {isMobile && sidebarOpen && (
+            {sidebarOpen && (
                 <div
-                    className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+                    className="md:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
                     onClick={() => setSidebarOpen(false)}
                 />
             )}
 
-            {/* Sidebar */}
+            {/* Sidebar (Always fixed left-0, w-64, md:translate-x-0) */}
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-gray-900 text-white w-64 transition-transform duration-300 ease-in-out
-                    ${isMobile ? (sidebarOpen ? 'translate-x-0' : '-translate-x-full') : 'translate-x-0'}
-                    ${isMobile ? 'top-14 shadow-2xl' : 'top-0'}
-                `}
+                className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-gray-900 text-white w-64 transition-transform duration-300 ease-in-out md:translate-x-0 ${
+                    sidebarOpen ? 'translate-x-0 top-14 md:top-0' : '-translate-x-full md:translate-x-0 top-14 md:top-0'
+                }`}
             >
                 {/* Desktop Logo */}
-                {!isMobile && (
-                    <div className="flex h-16 items-center justify-center px-4 border-b border-gray-700">
-                        <h1 className="text-xl font-bold text-indigo-400">
-                            Exam
-                        </h1>
-                    </div>
-                )}
+                <div className="hidden md:flex h-16 items-center justify-center px-4 border-b border-gray-700">
+                    <h1 className="text-xl font-bold text-indigo-400">
+                        Exam
+                    </h1>
+                </div>
 
                 {/* Navigation */}
                 <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -168,9 +176,9 @@ const TeacherLayout = () => {
                             key={item.path}
                             onClick={() => {
                                 navigate(item.path);
-                                if (isMobile) setSidebarOpen(false);
+                                setSidebarOpen(false);
                             }}
-                            className={`flex items-center w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive(item.path)
+                            className={`flex items-center w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer ${isActive(item.path)
                                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
                                 : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                                 }`}
@@ -189,7 +197,7 @@ const TeacherLayout = () => {
                     </div>
                     <button
                         onClick={handleLogout}
-                        className="flex items-center w-full px-3 py-2 rounded-lg text-sm font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 transition"
+                        className="flex items-center w-full px-3 py-2 rounded-lg text-sm font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 transition cursor-pointer"
                     >
                         <LogOut size={20} />
                         <span className="ml-3">ออกจากระบบ</span>
@@ -197,9 +205,9 @@ const TeacherLayout = () => {
                 </div>
             </aside>
 
-            {/* Main Content */}
-            <main className={`flex-1 transition-all duration-300 min-h-screen ${isMobile ? 'pt-14' : 'ml-64'}`}>
-                <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+            {/* Main Content (Always md:ml-64 on desktop, pt-14 md:pt-0 on mobile) */}
+            <main className="flex-1 min-h-screen md:ml-64 pt-14 md:pt-0 transition-all duration-300 w-full min-w-0 overflow-x-clip">
+                <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0">
                     <Outlet />
                 </div>
             </main>

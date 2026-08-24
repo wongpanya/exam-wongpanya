@@ -13,7 +13,7 @@
 ---
 
 ## 1. การเตรียมความพร้อม (Prerequisites)
-1. **Node.js** (v18 หรือใหม่กว่า)
+1. **Node.js** (v20.19 หรือใหม่กว่า เพื่อให้รองรับ Vite 7)
 2. บัญชี **MongoDB Atlas** (สร้างคลัสเตอร์ฟรี)
 3. บัญชี **Vercel** (สำหรับฝั่งหน้าบ้าน)
 4. บัญชี **DigitalOcean** (สำหรับฝั่งหลังบ้าน)
@@ -36,14 +36,14 @@ npm install
 ```
 สร้างไฟล์ `.env` ในโฟลเดอร์ `backend`:
 ```env
-PORT=5000
+PORT=5001
 NODE_ENV=development
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxx.mongodb.net/exam_db?retryWrites=true&w=majority
+MONGODB_URL=mongodb+srv://<username>:<password>@cluster0.xxx.mongodb.net/exam_db?retryWrites=true&w=majority
 JWT_SECRET=your_jwt_secret_key_here
 QR_SECRET=your_qr_secret_key_here
-FRONTEND_URL=http://localhost:5173
+CORS_ORIGIN=http://localhost:5173
 ```
-รันเซอร์วิส (จะเปิดการทำงานบน Port: 5000):
+รันเซอร์วิส (จะเปิดการทำงานบน Port: 5001):
 ```bash
 npm run dev
 ```
@@ -56,8 +56,8 @@ npm install
 ```
 สร้างไฟล์ `.env` ในโฟลเดอร์ `frontend`:
 ```env
-VITE_API_URL=http://localhost:5000/api
-VITE_SOCKET_URL=http://localhost:5000
+VITE_API_URL=http://localhost:5001/api
+VITE_SOCKET_URL=http://localhost:5001
 ```
 รันเซอร์วิส (จะเปิดการทำงานบน Port: 5173):
 ```bash
@@ -79,10 +79,10 @@ npm run dev
 6. ในแถบ **Environment Variables (ตัวแปรสภาพแวดล้อม)** ให้กด Bulk Edit เพิ่มค่าดังนี้:
    ```env
    NODE_ENV=production
-   MONGO_URI=(ใส่ Connection String ของ MongoDB Atlas)
+   MONGODB_URL=(ใส่ Connection String ของ MongoDB Atlas)
    JWT_SECRET=(ใส่รหัสผ่านสุ่มยากๆ)
    QR_SECRET=(ใส่รหัสผ่านสุ่มยากๆ ไว้หมุนเวลา QR)
-   FRONTEND_URL=(ข้ามออปชั่นนี้ไปก่อน หรือใส่ URL มั่วๆ ไปก่อน เราจะกลับมาอัปเดตทีหลัง)
+   CORS_ORIGIN=(URL ของ frontend เช่น http://localhost:5173)
    ```
 7. ในหน้า **Build & Run** ตรวจสอบว่า `HTTP Request Routes` Map ไปที่ `/` ของแอป (เซิร์ฟเวอร์เรามีการตั้ง process.env.PORT ไว้แล้ว)
 8. **กำหนดขนาดเครื่อง (Size):**
@@ -101,7 +101,7 @@ npm run dev
 6. กด **Deploy** 
 7. **(สำคัญมาก)** สำเนา URL ของ Frontend ที่เสร็จแล้ว (เช่น `https://exam-student-xxx.vercel.app`)
    - **กลับไปที่ DigitalOcean Apps > Settings > App-Level Environment Variables**
-   - ตั้ง/แก้ไขตัวแปร `FRONTEND_URL` โยนโดเมนตะกี้ลงไป (อย่าใส่เครื่องหมาย `/` ปิดท้าย)
+   - ตั้ง/แก้ไขตัวแปร `CORS_ORIGIN` เป็นโดเมนดังกล่าว (อย่าใส่เครื่องหมาย `/` ปิดท้าย)
    - เซฟการตั้งค่าเพื่อให้เกิดการ Re-deploy ใหม่ 1 ครั้ง ระบบ CORS จึงจะยอมให้ Vercel ยิงข้อสอบเข้า DO ได้ครับ
 
 ---

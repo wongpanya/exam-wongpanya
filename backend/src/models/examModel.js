@@ -11,6 +11,59 @@ const choiceSchema = new mongoose.Schema({
     },
 }, { _id: false });
 
+const rubricCriterionSchema = new mongoose.Schema({
+    rubricId: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    title: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    description: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    maxScore: {
+        type: Number,
+        required: true,
+        min: 0,
+    },
+}, { _id: false });
+
+const aiGradingSchema = new mongoose.Schema({
+    groundTruths: {
+        type: [String],
+        default: [],
+    },
+    rubricCriteria: {
+        type: [rubricCriterionSchema],
+        default: [],
+    },
+    keyConcepts: {
+        type: [String],
+        default: [],
+    },
+    language: {
+        type: String,
+        enum: ['th', 'en'],
+        default: 'th',
+    },
+    providerPreference: {
+        type: String,
+        enum: ['system', 'gemini', 'openrouter'],
+        default: 'system',
+    },
+    modelPreference: {
+        type: String,
+        default: '',
+        maxlength: 300,
+    },
+}, { _id: false });
+
 const questionSchema = new mongoose.Schema({
     questionId: {
         type: String,
@@ -28,11 +81,20 @@ const questionSchema = new mongoose.Schema({
     choices: [choiceSchema],
     correctAnswer: {
         type: String,
-        required: true,
+        default: '',
     },
     points: {
         type: Number,
         default: 1,
+    },
+    gradingMode: {
+        type: String,
+        enum: ['exact', 'ai'],
+        default: 'exact',
+    },
+    aiGrading: {
+        type: aiGradingSchema,
+        default: () => ({}),
     },
 }, { _id: false });
 

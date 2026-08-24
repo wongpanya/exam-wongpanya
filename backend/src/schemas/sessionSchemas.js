@@ -1,4 +1,10 @@
 const { z } = require('zod');
+const aiConfig = require('../config/aiConfig');
+
+const answerSchema = z.object({
+    questionId: z.string().trim().min(1).max(100),
+    selectedAnswer: z.string().max(aiConfig.maxAnswerChars).default(''),
+}).strict();
 
 const startSessionSchema = z.object({
     qrRotateInterval: z.number().min(5).max(60).default(10),
@@ -22,17 +28,11 @@ const joinSessionSchema = z.object({
 }).refine(data => data.qrToken || data.joinToken, { message: 'QR Token required' });
 
 const autoSaveSchema = z.object({
-    answers: z.array(z.object({
-        questionId: z.string(),
-        selectedAnswer: z.string().default(''),
-    })),
+    answers: z.array(answerSchema).max(200),
 });
 
 const submitSchema = z.object({
-    answers: z.array(z.object({
-        questionId: z.string(),
-        selectedAnswer: z.string().default(''),
-    })),
+    answers: z.array(answerSchema).max(200),
 });
 
 const cheatLogSchema = z.object({

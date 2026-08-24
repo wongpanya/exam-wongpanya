@@ -3,6 +3,46 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
+import AIGradingConfig from '../../components/AIGradingConfig';
+
+const createDefaultAiGrading = (points = 1, groundTruth = '') => ({
+    groundTruths: groundTruth ? [groundTruth] : [''],
+    rubricCriteria: [{
+        rubricId: 'criterion-1',
+        title: 'ความถูกต้องของคำตอบ',
+        description: 'ประเมินความถูกต้องและความครบถ้วนตามโจทย์',
+        maxScore: points,
+    }],
+    keyConcepts: [],
+    language: 'th',
+    providerPreference: 'system',
+    modelPreference: '',
+});
+
+const createDefaultQuestion = () => ({
+    type: 'radio',
+    prompt: '',
+    choices: [{ value: 'a', label: '' }, { value: 'b', label: '' }],
+    correctAnswer: '',
+    points: 1,
+    gradingMode: 'exact',
+    aiGrading: createDefaultAiGrading(1),
+});
+
+const normalizeQuestion = (question) => {
+    if (question.type !== 'text') {
+        return { ...question, gradingMode: 'exact', aiGrading: question.aiGrading || createDefaultAiGrading(question.points) };
+    }
+    return {
+        ...question,
+        gradingMode: 'ai',
+        choices: [],
+        correctAnswer: '',
+        aiGrading: question.gradingMode === 'ai' && question.aiGrading?.groundTruths?.length
+            ? question.aiGrading
+            : createDefaultAiGrading(question.points, question.correctAnswer),
+    };
+};
 
 const EditExam = () => {
     const { id } = useParams();
@@ -11,6 +51,7 @@ const EditExam = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [providerSettings, setProviderSettings] = useState({ primary: 'gemini', fallbacks: [], providers: [] });
 
     const [title, setTitle] = useState('');
     const [durationMin, setDurationMin] = useState(30);
@@ -19,6 +60,12 @@ const EditExam = () => {
     const [isNewCategory, setIsNewCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [questions, setQuestions] = useState([]);
+
+    useEffect(() => {
+        api.get('/grading/provider-settings')
+            .then(({ data }) => setProviderSettings(data))
+            .catch((fetchError) => console.error('Failed to fetch AI provider settings:', fetchError));
+    }, []);
 
     // Export current questions as CSV
     const exportQuestionsAsCSV = () => {
@@ -41,15 +88,20 @@ const EditExam = () => {
             const type = q.type === 'text' ? 'อัตนัย' : q.type === 'checkbox' ? 'checkbox' : 'ปรนัย';
             const prompt = stripHTML(q.prompt);
             const opts = [0, 1, 2, 3].map(i => q.choices?.[i]?.label || '');
-            // Convert letters to 1-based numbers. Checkbox answers use | as a separator.
-            const correctNum = String(q.correctAnswer || '')
-                .split(',')
-                .filter(Boolean)
-                .map((answer) => {
-                    const idx = q.choices?.findIndex(choice => choice.value === answer) ?? -1;
-                    return idx >= 0 ? String(idx + 1) : answer;
-                })
-                .join('|');
+            // Convert letters to 1-based numbers (pipe-separated for checkbox), or export essay ground truth
+            let correctNum = '';
+            if (q.type === 'text') {
+                correctNum = q.aiGrading?.groundTruths?.[0] || '';
+            } else {
+                correctNum = String(q.correctAnswer || '')
+                    .split(',')
+                    .filter(Boolean)
+                    .map((answer) => {
+                        const idx = q.choices?.findIndex(choice => choice.value === answer) ?? -1;
+                        return idx >= 0 ? String(idx + 1) : answer;
+                    })
+                    .join('|');
+            }
             return [type, prompt, ...opts, correctNum, q.points || 1].map(escapeCSV).join(',');
         });
         const content = bom + header + '\n' + rows.join('\n') + '\n';
@@ -76,7 +128,7 @@ const EditExam = () => {
                 setTitle(data.title);
                 setDurationMin(data.durationMin);
                 setCategory(data.category ? (typeof data.category === 'object' ? data.category.name : data.category) : 'ทั่วไป');
-                setQuestions(data.questions);
+                setQuestions(data.questions.map(normalizeQuestion));
             } catch (err) {
                 setError(err.response?.data?.message || 'Failed to fetch exam');
             } finally {
@@ -107,19 +159,7 @@ const EditExam = () => {
     }, [id]);
 
     const addQuestion = () => {
-        setQuestions([
-            ...questions,
-            {
-                type: 'radio',
-                prompt: '',
-                choices: [
-                    { value: 'a', label: '' },
-                    { value: 'b', label: '' },
-                ],
-                correctAnswer: '',
-                points: 1,
-            },
-        ]);
+        setQuestions([...questions, createDefaultQuestion()]);
     };
 
     const removeQuestion = (qIndex) => {
@@ -133,6 +173,12 @@ const EditExam = () => {
             ...original,
             questionId: undefined,
             choices: original.choices.map(c => ({ ...c })),
+            aiGrading: {
+                ...original.aiGrading,
+                groundTruths: [...(original.aiGrading?.groundTruths || [])],
+                keyConcepts: [...(original.aiGrading?.keyConcepts || [])],
+                rubricCriteria: (original.aiGrading?.rubricCriteria || []).map(item => ({ ...item })),
+            },
         };
         const updated = [...questions];
         updated.splice(qIndex + 1, 0, copy);
@@ -149,6 +195,77 @@ const EditExam = () => {
                 : (selectedAnswers[0] || '');
         }
         setQuestions(updated);
+    };
+
+    const changeQuestionType = (qIndex, type) => {
+        const updated = [...questions];
+        const current = updated[qIndex];
+        if (type === 'text') {
+            updated[qIndex] = {
+                ...current,
+                type: 'text',
+                choices: [],
+                correctAnswer: '',
+                gradingMode: 'ai',
+                aiGrading: current.aiGrading || createDefaultAiGrading(current.points),
+            };
+        } else if (type === 'checkbox') {
+            const selectedAnswers = String(current.correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex] = {
+                ...current,
+                type: 'checkbox',
+                choices: current.choices?.length >= 2 ? current.choices : createDefaultQuestion().choices,
+                correctAnswer: [...new Set(selectedAnswers)].sort().join(','),
+                gradingMode: 'exact',
+            };
+        } else {
+            // radio
+            const selectedAnswers = String(current.correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex] = {
+                ...current,
+                type: 'radio',
+                choices: current.choices?.length >= 2 ? current.choices : createDefaultQuestion().choices,
+                correctAnswer: selectedAnswers[0] || '',
+                gradingMode: 'exact',
+            };
+        }
+        setQuestions(updated);
+    };
+
+    const updatePoints = (qIndex, points) => {
+        const updated = [...questions];
+        const question = { ...updated[qIndex], points };
+        if (question.gradingMode === 'ai' && question.aiGrading?.rubricCriteria?.length === 1) {
+            question.aiGrading = {
+                ...question.aiGrading,
+                rubricCriteria: [{ ...question.aiGrading.rubricCriteria[0], maxScore: points }],
+            };
+        }
+        updated[qIndex] = question;
+        setQuestions(updated);
+    };
+
+    const testAiGrade = async (qIndex, studentAnswer) => {
+        const question = questions[qIndex];
+        const { data } = await api.post('/grading/grade', {
+            preferredProvider: question.aiGrading.providerPreference || 'system',
+            preferredModel: question.aiGrading.modelPreference || '',
+            request: {
+                question: question.prompt,
+                groundTruths: question.aiGrading.groundTruths.filter(item => item.trim()),
+                studentAnswer,
+                rubric: question.aiGrading.rubricCriteria.map(item => ({
+                    id: item.rubricId,
+                    title: item.title,
+                    description: item.description,
+                    maxScore: Number(item.maxScore),
+                })),
+                keyConcepts: question.aiGrading.keyConcepts.filter(item => item.trim()),
+                maxScore: Number(question.points),
+                language: question.aiGrading.language || 'th',
+            },
+        });
+        return data;
     };
 
     const selectCorrectAnswer = (qIndex, value) => {
@@ -223,15 +340,38 @@ const EditExam = () => {
                 setError(`กรุณาใส่คำถามข้อที่ ${i + 1}`);
                 return;
             }
-            for (let j = 0; j < q.choices.length; j++) {
-                if (!q.choices[j].label.trim()) {
-                    setError(`กรุณาใส่ตัวเลือกข้อ ${i + 1} ตัวเลือกที่ ${j + 1}`);
+            if (q.type === 'text' && q.gradingMode === 'ai') {
+                const groundTruths = q.aiGrading?.groundTruths?.filter(item => item.trim()) || [];
+                const rubric = q.aiGrading?.rubricCriteria || [];
+                const rubricTotal = rubric.reduce((sum, item) => sum + Number(item.maxScore || 0), 0);
+                const rubricIds = rubric.map(item => item.rubricId.trim()).filter(Boolean);
+                if (groundTruths.length === 0) {
+                    setError(`กรุณาใส่ Ground Truth อย่างน้อย 1 คำตอบในข้อ ${i + 1}`);
                     return;
                 }
-            }
-            if (!q.correctAnswer) {
-                setError(`กรุณาเลือกคำตอบที่ถูกต้องของข้อ ${i + 1}`);
-                return;
+                if (rubric.length === 0 || rubric.some(item => !item.rubricId.trim() || !item.title.trim() || !item.description.trim() || Number(item.maxScore) <= 0)) {
+                    setError(`กรุณากรอก Rubric ของข้อ ${i + 1} ให้ครบ`);
+                    return;
+                }
+                if (new Set(rubricIds).size !== rubricIds.length) {
+                    setError(`Rubric ID ของข้อ ${i + 1} ต้องไม่ซ้ำกัน`);
+                    return;
+                }
+                if (Math.abs(rubricTotal - Number(q.points)) > 0.000001) {
+                    setError(`ผลรวมคะแนน Rubric ของข้อ ${i + 1} ต้องเท่ากับ ${q.points}`);
+                    return;
+                }
+            } else {
+                for (let j = 0; j < q.choices.length; j++) {
+                    if (!q.choices[j].label.trim()) {
+                        setError(`กรุณาใส่ตัวเลือกข้อ ${i + 1} ตัวเลือกที่ ${j + 1}`);
+                        return;
+                    }
+                }
+                if (!q.correctAnswer) {
+                    setError(`กรุณาเลือกคำตอบที่ถูกต้องของข้อ ${i + 1}`);
+                    return;
+                }
             }
         }
 
@@ -366,13 +506,23 @@ const EditExam = () => {
                                     </h3>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    <select
+                                        value={q.type}
+                                        onChange={(e) => changeQuestionType(qIndex, e.target.value)}
+                                        className="px-2.5 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-gray-700"
+                                        aria-label={`ประเภทคำถามข้อที่ ${qIndex + 1}`}
+                                    >
+                                        <option value="radio">ปรนัย (เลือกคำตอบเดียว)</option>
+                                        <option value="checkbox">ปรนัยหลายคำตอบ (Checkbox)</option>
+                                        <option value="text">อัตนัย (ตรวจด้วย AI)</option>
+                                    </select>
                                     <div className="flex items-center gap-1">
                                         <label className="text-xs text-gray-500">คะแนน:</label>
                                         <input
                                             type="number"
                                             min="1"
                                             value={q.points}
-                                            onChange={(e) => updateQuestion(qIndex, 'points', Number(e.target.value))}
+                                            onChange={(e) => updatePoints(qIndex, Number(e.target.value))}
                                             className="w-16 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                                         />
                                     </div>
@@ -395,19 +545,6 @@ const EditExam = () => {
                                 </div>
                             </div>
 
-                            {/* Question type */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">รูปแบบคำตอบ</label>
-                                <select
-                                    value={q.type}
-                                    onChange={(e) => updateQuestion(qIndex, 'type', e.target.value)}
-                                    className="w-full sm:w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
-                                >
-                                    <option value="radio">ปรนัย — เลือกคำตอบเดียว</option>
-                                    <option value="checkbox">Checkbox — เลือกได้ 1 ข้อหรือหลายข้อ</option>
-                                </select>
-                            </div>
-
                             {/* Prompt */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">คำถาม</label>
@@ -418,7 +555,16 @@ const EditExam = () => {
                                 />
                             </div>
 
-                            {/* Choices - clickable cards */}
+                            {q.type === 'text' && q.gradingMode === 'ai' ? (
+                                <AIGradingConfig
+                                    value={q.aiGrading}
+                                    points={q.points}
+                                    providerSettings={providerSettings}
+                                    onChange={(next) => updateQuestion(qIndex, 'aiGrading', next)}
+                                    onTest={(studentAnswer) => testAiGrade(qIndex, studentAnswer)}
+                                />
+                            ) : (
+                            /* Choices - clickable cards */
                             <div className="space-y-2">
                                 <label className="block text-sm font-medium text-gray-700">
                                     ตัวเลือก <span className="text-gray-400 font-normal">
@@ -474,8 +620,9 @@ const EditExam = () => {
                                     <Plus size={14} /> เพิ่มตัวเลือก
                                 </button>
                             </div>
+                            )}
 
-                            {q.correctAnswer && (
+                            {q.type !== 'text' && q.correctAnswer && (
                                 <p className="text-xs text-green-600 font-medium">
                                     ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.split(',').map(value => value.toUpperCase()).join(', ')}
                                 </p>

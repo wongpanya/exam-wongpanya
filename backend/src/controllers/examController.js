@@ -18,6 +18,22 @@ const normalizeEmail = (value) => normalizeImportValue(value).toLowerCase();
 
 const normalizeStudentCode = (value) => normalizeImportValue(value).toLowerCase();
 
+const assignStableQuestionIds = (questions) => {
+    const used = new Set(questions.map(question => question.questionId).filter(Boolean));
+    let nextNumber = 1;
+
+    return questions.map((question) => {
+        if (question.questionId) return question;
+        let questionId;
+        do {
+            questionId = `Q${String(nextNumber).padStart(3, '0')}`;
+            nextNumber += 1;
+        } while (used.has(questionId));
+        used.add(questionId);
+        return { ...question, questionId };
+    });
+};
+
 const formatStudent = (student) => ({
     _id: student._id,
     firstName: student.firstName,
@@ -213,15 +229,15 @@ const createExam = asyncHandler(async (req, res) => {
     }
 
     // Auto-generate examId securely to prevent race conditions
-    const lastExam = await Exam.findOne({}, { examId: 1 }).sort({ createdAt: -1 });
-    const lastNum = lastExam ? parseInt(lastExam.examId.replace('EXAM', ''), 10) : 0;
+    const lastExam = await Exam.findOne(
+        { examId: { $regex: /^EXAM\d+$/ } },
+        { examId: 1 }
+    ).sort({ createdAt: -1 }).lean();
+    const lastNum = Number.parseInt(String(lastExam?.examId || '').replace(/^EXAM/, ''), 10) || 0;
     const examId = `EXAM${String(lastNum + 1).padStart(3, '0')}`;
 
     // Auto-generate questionIds if not provided
-    const processedQuestions = questions.map((q, index) => ({
-        ...q,
-        questionId: q.questionId || `Q${String(index + 1).padStart(3, '0')}`,
-    }));
+    const processedQuestions = assignStableQuestionIds(questions);
 
     let categoryId = null;
     if (category && category !== 'ทั่วไป') {
@@ -300,10 +316,7 @@ const updateExam = asyncHandler(async (req, res) => {
 
     // Auto-generate questionIds if not provided
     const processedQuestions = questions
-        ? questions.map((q, index) => ({
-            ...q,
-            questionId: q.questionId || `Q${String(index + 1).padStart(3, '0')}`,
-        }))
+        ? assignStableQuestionIds(questions)
         : exam.questions;
 
     exam.title = title || exam.title;

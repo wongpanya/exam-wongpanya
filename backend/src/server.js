@@ -76,6 +76,7 @@ app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/exams", require("./routes/examRoutes"));
 app.use("/api/exam-sessions", require("./routes/examSessionRoutes"));
 app.use("/api/attendance", require("./routes/attendanceRoutes"));
+app.use("/api/grading", require("./routes/gradingRoutes"));
 
 // Error middleware
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
@@ -92,9 +93,13 @@ server.listen(PORT, "0.0.0.0", () => {
     );
 });
 
+const { startGradingWorker, stopGradingWorker } = require('./services/grading/gradingWorker');
+startGradingWorker();
+
 // Graceful Shutdown
 const gracefulShutdown = (signal) => {
     console.log(`\n${signal} received. Shutting down gracefully...`);
+    stopGradingWorker();
     server.close(() => {
         mongoose.connection.close(false).then(() => {
             console.log('MongoDB connection closed.');

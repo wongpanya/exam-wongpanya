@@ -3,17 +3,68 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
 import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
+import AIGradingConfig from '../../components/AIGradingConfig';
+
+const createDefaultAiGrading = (points = 1, groundTruth = '') => ({
+    groundTruths: groundTruth ? [groundTruth] : [''],
+    rubricCriteria: [{
+        rubricId: 'criterion-1',
+        title: 'ความถูกต้องของคำตอบ',
+        description: 'ประเมินความถูกต้องและความครบถ้วนตามโจทย์',
+        maxScore: points,
+    }],
+    keyConcepts: [],
+    language: 'th',
+    providerPreference: 'system',
+    modelPreference: '',
+});
+
+const createDefaultQuestion = () => ({
+    type: 'radio',
+    prompt: '',
+    choices: [
+        { value: 'a', label: '' },
+        { value: 'b', label: '' },
+    ],
+    correctAnswer: '',
+    points: 1,
+    gradingMode: 'exact',
+    aiGrading: createDefaultAiGrading(1),
+});
+
+const normalizeImportedQuestion = (question) => {
+    const points = Number(question.points) || 1;
+    if (question.type !== 'text') {
+        return { ...createDefaultQuestion(), ...question, gradingMode: 'exact' };
+    }
+    return {
+        ...question,
+        type: 'text',
+        choices: [],
+        correctAnswer: '',
+        points,
+        gradingMode: 'ai',
+        aiGrading: question.aiGrading || createDefaultAiGrading(points, question.correctAnswer),
+    };
+};
 
 // --- CSV Template & Parser ---
-const CSV_TEMPLATE_HEADER = 'QuestionType,Prompt,Option1,Option2,Option3,Option4,CorrectAnswer,Points';
-const CSV_TEMPLATE_EXAMPLES = [
-    'ปรนัย,เมืองหลวงของไทยคือ?,เชียงใหม่,กรุงเทพ,ภูเก็ต,ขอนแก่น,2,1',
-    'checkbox,ข้อใดเป็นสีแม่สี?,แดง,เขียว,น้ำเงิน,เหลือง,1|3|4,2',
+const CSV_TEMPLATE_ROWS = [
+    ['QuestionType', 'Prompt', 'Option1', 'Option2', 'Option3', 'Option4', 'CorrectAnswer', 'Points', 'GroundTruths', 'Rubrics', 'KeyConcepts'],
+    ['ปรนัย', 'เมืองหลวงของประเทศไทยคือเมืองใด?', 'เชียงใหม่', 'กรุงเทพมหานคร', 'ภูเก็ต', 'ขอนแก่น', '2', '1', '', '', ''],
+    ['checkbox', 'ข้อใดจัดเป็นสีแม่สี (เลือกได้หลายข้อ)?', 'แดง', 'เขียว', 'น้ำเงิน', 'เหลือง', '1|3|4', '2', '', '', ''],
+    ['อัตนัย', 'อธิบายกระบวนการสังเคราะห์ด้วยแสงของพืชโดยสังเขป', '', '', '', '', '', '5', '["พืชใช้พลังงานแสงเพื่อเปลี่ยนน้ำและคาร์บอนไดออกไซด์เป็นน้ำตาลกลูโคสและออกซิเจน","การสังเคราะห์ด้วยแสงเป็นกระบวนการที่พืชใช้คลอโรฟิลล์ดูดกลืนแสงเพื่อเปลี่ยนน้ำและก๊าซคาร์บอนไดออกไซด์เป็นอาหารและออกซิเจน"]', '[{"title":"สารตั้งต้นและพลังงาน","description":"กล่าวถึงพลังงานแสง คลอโรฟิลล์ น้ำ และคาร์บอนไดออกไซด์","score":3},{"title":"ผลผลิตของกระบวนการ","description":"กล่าวถึงน้ำตาลกลูโคสและก๊าซออกซิเจน","score":2}]', '["พลังงานแสง","น้ำ","คาร์บอนไดออกไซด์","น้ำตาลกลูโคส","ออกซิเจน","คลอโรฟิลล์","การสังเคราะห์ด้วยแสง"]'],
+    ['อัตนัย', 'อธิบายความแตกต่างระหว่าง Deep Learning และ Machine Learning', '', '', '', '', '', '10', '["Machine Learning เป็นสาขาหนึ่งของ AI ที่เรียนรู้รูปแบบจากข้อมูล ส่วน Deep Learning เป็นส่วนหนึ่งของ Machine Learning ที่ใช้โครงข่ายประสาทเทียมหลายชั้น (Deep Neural Networks)","Deep Learning สามารถเรียนรู้ Feature Representation ได้โดยอัตโนมัติจากข้อมูลดิบ ขณะที่ Machine Learning ทั่วไปต้องอาศัยการสกัด Feature Engineering โดยมนุษย์","Deep Learning ต้องการข้อมูลขนาดใหญ่และพลังประมวลผลสูง เหมาะกับงานด้าน Computer Vision และ Natural Language Processing"]', '[{"title":"ความสัมพันธ์ระดับแนวคิด","description":"อธิบายความสัมพันธ์ว่า Deep Learning เป็นซับเซตของ Machine Learning","score":3},{"title":"โครงสร้างการทำงาน","description":"กล่าวถึงการใช้โครงข่ายประสาทเทียมหลายชั้น (Deep Neural Networks)","score":3},{"title":"Feature Engineering","description":"เปรียบเทียบการสกัด Feature อัตโนมัติกับ Manual Feature Engineering","score":2},{"title":"การประยุกต์ใช้งานและข้อจำกัด","description":"ยกตัวอย่างงานที่เหมาะสมและทรัพยากรที่ต้องใช้ เช่น ข้อมูลขนาดใหญ่","score":2}]', '["Machine Learning","Deep Learning","Artificial Intelligence","Neural Network","Feature Learning","Feature Engineering","Computer Vision"]'],
 ];
+
+const escapeCSVCell = value => {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
 
 function downloadCSVTemplate() {
     const bom = '\uFEFF'; // UTF-8 BOM for Excel compat
-    const content = bom + CSV_TEMPLATE_HEADER + '\n' + CSV_TEMPLATE_EXAMPLES.join('\n') + '\n';
+    const content = bom + CSV_TEMPLATE_ROWS.map(row => row.map(escapeCSVCell).join(',')).join('\n') + '\n';
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -51,7 +102,18 @@ function parseCSVToQuestions(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) throw new Error('ไฟล์ CSV ต้องมีอย่างน้อย 1 แถวข้อมูล (ไม่รวม header)');
 
-    // Skip header row
+    // Parse headers
+    const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+
+    const getColValue = (cols, possibleHeaders, fallbackIndex) => {
+        for (const h of possibleHeaders) {
+            const idx = headers.indexOf(h.toLowerCase());
+            if (idx >= 0 && idx < cols.length) return cols[idx];
+        }
+        if (fallbackIndex >= 0 && fallbackIndex < cols.length) return cols[fallbackIndex];
+        return '';
+    };
+
     const dataLines = lines.slice(1);
     const questions = [];
 
@@ -59,7 +121,19 @@ function parseCSVToQuestions(csvText) {
         const cols = parseCSVLine(dataLines[i]);
         if (cols.length < 3) continue; // skip invalid rows
 
-        const [rawType, prompt, opt1, opt2, opt3, opt4, rawCorrect, rawPoints] = cols;
+        const rawType = getColValue(cols, ['QuestionType', 'type'], 0);
+        const prompt = getColValue(cols, ['Prompt', 'question'], 1);
+        const opt1 = getColValue(cols, ['Option1'], 2);
+        const opt2 = getColValue(cols, ['Option2'], 3);
+        const opt3 = getColValue(cols, ['Option3'], 4);
+        const opt4 = getColValue(cols, ['Option4'], 5);
+        const rawCorrect = getColValue(cols, ['CorrectAnswer'], 6);
+        const rawPoints = getColValue(cols, ['Points'], 7);
+        const rawGroundTruths = getColValue(cols, ['GroundTruths', 'groundtruth'], 8);
+        const rawRubrics = getColValue(cols, ['Rubrics', 'RubricTitle', 'rubrictitle'], 9);
+        const rawRubricDescription = getColValue(cols, ['RubricDescription'], 10);
+        const rawKeyConcepts = getColValue(cols, ['KeyConcepts', 'keyconcepts', 'keyconcept'], 11);
+
         const type = rawType?.trim();
         const isText = type === 'อัตนัย' || type?.toLowerCase() === 'text';
         const normalizedType = type?.toLowerCase();
@@ -67,12 +141,86 @@ function parseCSVToQuestions(csvText) {
             .includes(normalizedType);
 
         if (isText) {
+            let groundTruths = [];
+            const gtTrimmed = rawGroundTruths.trim();
+            if (gtTrimmed.startsWith('[') && gtTrimmed.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(gtTrimmed);
+                    if (Array.isArray(parsed)) {
+                        groundTruths = parsed.map(item => String(item).trim()).filter(Boolean);
+                    }
+                } catch (e) {}
+            }
+            if (groundTruths.length === 0) {
+                groundTruths = (rawGroundTruths || rawCorrect || '')
+                    .split(/[;|\n]/)
+                    .map(item => item.trim())
+                    .filter(Boolean);
+            }
+
+            let rubricCriteria = [];
+            const rubricTrimmed = rawRubrics.trim();
+            if (rubricTrimmed.startsWith('[') && rubricTrimmed.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(rubricTrimmed);
+                    if (Array.isArray(parsed)) {
+                        rubricCriteria = parsed.map((item, idx) => ({
+                            rubricId: item.rubricId || item.id || `criterion-${idx + 1}`,
+                            title: item.title || item.RubricTitle || `เกณฑ์ที่ ${idx + 1}`,
+                            description: item.description || item.RubricDescription || '',
+                            maxScore: Number(item.score || item.maxScore || item.points) || 1,
+                        }));
+                    }
+                } catch (e) {}
+            }
+
+            const rubricTotalPoints = rubricCriteria.reduce((sum, item) => sum + item.maxScore, 0);
+            const points = rubricCriteria.length > 0 ? rubricTotalPoints : (Number(rawPoints) || 1);
+
+            if (rubricCriteria.length === 0) {
+                rubricCriteria = [{
+                    rubricId: 'criterion-1',
+                    title: rawRubrics.trim() || 'ความถูกต้องของคำตอบ',
+                    description: rawRubricDescription.trim() || 'ประเมินความถูกต้องและความครบถ้วนตามโจทย์',
+                    maxScore: points,
+                }];
+            }
+
+            let keyConcepts = [];
+            const kcTrimmed = rawKeyConcepts.trim();
+            if (kcTrimmed.startsWith('[') && kcTrimmed.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(kcTrimmed);
+                    if (Array.isArray(parsed)) {
+                        keyConcepts = parsed.map(item => {
+                            if (item && typeof item === 'object') {
+                                return String(item.concept || item.title || '').trim();
+                            }
+                            return String(item || '').trim();
+                        }).filter(Boolean);
+                    }
+                } catch (e) {}
+            }
+            if (keyConcepts.length === 0) {
+                keyConcepts = rawKeyConcepts
+                    .split(/[;|\n]/)
+                    .map(item => item.trim())
+                    .filter(Boolean);
+            }
+
             questions.push({
                 type: 'text',
                 prompt: prompt || '',
                 choices: [],
-                correctAnswer: rawCorrect || '',
-                points: Number(rawPoints) || 1,
+                correctAnswer: '',
+                points,
+                gradingMode: 'ai',
+                aiGrading: {
+                    ...createDefaultAiGrading(points, groundTruths[0] || ''),
+                    groundTruths: groundTruths.length > 0 ? groundTruths : [''],
+                    rubricCriteria,
+                    keyConcepts,
+                },
             });
         } else {
             // Multiple-choice (single answer / checkbox)
@@ -110,6 +258,8 @@ function parseCSVToQuestions(csvText) {
                 choices,
                 correctAnswer,
                 points: Number(rawPoints) || 1,
+                gradingMode: 'exact',
+                aiGrading: createDefaultAiGrading(Number(rawPoints) || 1),
             });
         }
     }
@@ -124,6 +274,7 @@ const CreateExam = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [providerSettings, setProviderSettings] = useState({ primary: 'gemini', fallbacks: [], providers: [] });
 
     // Check for imported questions from AI Generator
     const importedQuestions = location.state?.importedQuestions;
@@ -137,19 +288,8 @@ const CreateExam = () => {
     const [newCategoryName, setNewCategoryName] = useState('');
     const [questions, setQuestions] = useState(
         importedQuestions && importedQuestions.length > 0
-            ? importedQuestions
-            : [
-                {
-                    type: 'radio',
-                    prompt: '',
-                    choices: [
-                        { value: 'a', label: '' },
-                        { value: 'b', label: '' },
-                    ],
-                    correctAnswer: '',
-                    points: 1,
-                },
-            ]
+            ? importedQuestions.map(normalizeImportedQuestion)
+            : [createDefaultQuestion()]
     );
 
     useEffect(() => {
@@ -173,6 +313,12 @@ const CreateExam = () => {
         fetchCategories();
     }, []);
 
+    useEffect(() => {
+        api.get('/grading/provider-settings')
+            .then(({ data }) => setProviderSettings(data))
+            .catch((fetchError) => console.error('Failed to fetch AI provider settings:', fetchError));
+    }, []);
+
     const handleCSVUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -193,19 +339,7 @@ const CreateExam = () => {
     };
 
     const addQuestion = () => {
-        setQuestions([
-            ...questions,
-            {
-                type: 'radio',
-                prompt: '',
-                choices: [
-                    { value: 'a', label: '' },
-                    { value: 'b', label: '' },
-                ],
-                correctAnswer: '',
-                points: 1,
-            },
-        ]);
+        setQuestions([...questions, createDefaultQuestion()]);
     };
 
     const removeQuestion = (qIndex) => {
@@ -218,6 +352,12 @@ const CreateExam = () => {
         const copy = {
             ...original,
             choices: original.choices.map(c => ({ ...c })),
+            aiGrading: {
+                ...original.aiGrading,
+                groundTruths: [...(original.aiGrading?.groundTruths || [])],
+                keyConcepts: [...(original.aiGrading?.keyConcepts || [])],
+                rubricCriteria: (original.aiGrading?.rubricCriteria || []).map(item => ({ ...item })),
+            },
         };
         const updated = [...questions];
         updated.splice(qIndex + 1, 0, copy);
@@ -234,6 +374,77 @@ const CreateExam = () => {
                 : (selectedAnswers[0] || '');
         }
         setQuestions(updated);
+    };
+
+    const changeQuestionType = (qIndex, type) => {
+        const updated = [...questions];
+        const current = updated[qIndex];
+        if (type === 'text') {
+            updated[qIndex] = {
+                ...current,
+                type: 'text',
+                choices: [],
+                correctAnswer: '',
+                gradingMode: 'ai',
+                aiGrading: current.aiGrading || createDefaultAiGrading(current.points),
+            };
+        } else if (type === 'checkbox') {
+            const selectedAnswers = String(current.correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex] = {
+                ...current,
+                type: 'checkbox',
+                choices: current.choices?.length >= 2 ? current.choices : createDefaultQuestion().choices,
+                correctAnswer: [...new Set(selectedAnswers)].sort().join(','),
+                gradingMode: 'exact',
+            };
+        } else {
+            // radio
+            const selectedAnswers = String(current.correctAnswer || '').split(',').filter(Boolean);
+            updated[qIndex] = {
+                ...current,
+                type: 'radio',
+                choices: current.choices?.length >= 2 ? current.choices : createDefaultQuestion().choices,
+                correctAnswer: selectedAnswers[0] || '',
+                gradingMode: 'exact',
+            };
+        }
+        setQuestions(updated);
+    };
+
+    const updatePoints = (qIndex, points) => {
+        const updated = [...questions];
+        const question = { ...updated[qIndex], points };
+        if (question.gradingMode === 'ai' && question.aiGrading?.rubricCriteria?.length === 1) {
+            question.aiGrading = {
+                ...question.aiGrading,
+                rubricCriteria: [{ ...question.aiGrading.rubricCriteria[0], maxScore: points }],
+            };
+        }
+        updated[qIndex] = question;
+        setQuestions(updated);
+    };
+
+    const testAiGrade = async (qIndex, studentAnswer) => {
+        const question = questions[qIndex];
+        const { data } = await api.post('/grading/grade', {
+            preferredProvider: question.aiGrading.providerPreference || 'system',
+            preferredModel: question.aiGrading.modelPreference || '',
+            request: {
+                question: question.prompt,
+                groundTruths: question.aiGrading.groundTruths.filter(item => item.trim()),
+                studentAnswer,
+                rubric: question.aiGrading.rubricCriteria.map(item => ({
+                    id: item.rubricId,
+                    title: item.title,
+                    description: item.description,
+                    maxScore: Number(item.maxScore),
+                })),
+                keyConcepts: question.aiGrading.keyConcepts.filter(item => item.trim()),
+                maxScore: Number(question.points),
+                language: question.aiGrading.language || 'th',
+            },
+        });
+        return data;
     };
 
     const selectCorrectAnswer = (qIndex, value) => {
@@ -308,15 +519,38 @@ const CreateExam = () => {
                 setError(`กรุณาใส่คำถามข้อที่ ${i + 1}`);
                 return;
             }
-            for (let j = 0; j < q.choices.length; j++) {
-                if (!q.choices[j].label.trim()) {
-                    setError(`กรุณาใส่ตัวเลือกข้อ ${i + 1} ตัวเลือกที่ ${j + 1}`);
+            if (q.type === 'text' && q.gradingMode === 'ai') {
+                const groundTruths = q.aiGrading?.groundTruths?.filter(item => item.trim()) || [];
+                const rubric = q.aiGrading?.rubricCriteria || [];
+                const rubricTotal = rubric.reduce((sum, item) => sum + Number(item.maxScore || 0), 0);
+                const rubricIds = rubric.map(item => item.rubricId.trim()).filter(Boolean);
+                if (groundTruths.length === 0) {
+                    setError(`กรุณาใส่ Ground Truth อย่างน้อย 1 คำตอบในข้อ ${i + 1}`);
                     return;
                 }
-            }
-            if (!q.correctAnswer) {
-                setError(`กรุณาเลือกคำตอบที่ถูกต้องของข้อ ${i + 1}`);
-                return;
+                if (rubric.length === 0 || rubric.some(item => !item.rubricId.trim() || !item.title.trim() || !item.description.trim() || Number(item.maxScore) <= 0)) {
+                    setError(`กรุณากรอก Rubric ของข้อ ${i + 1} ให้ครบ`);
+                    return;
+                }
+                if (new Set(rubricIds).size !== rubricIds.length) {
+                    setError(`Rubric ID ของข้อ ${i + 1} ต้องไม่ซ้ำกัน`);
+                    return;
+                }
+                if (Math.abs(rubricTotal - Number(q.points)) > 0.000001) {
+                    setError(`ผลรวมคะแนน Rubric ของข้อ ${i + 1} ต้องเท่ากับ ${q.points}`);
+                    return;
+                }
+            } else {
+                for (let j = 0; j < q.choices.length; j++) {
+                    if (!q.choices[j].label.trim()) {
+                        setError(`กรุณาใส่ตัวเลือกข้อ ${i + 1} ตัวเลือกที่ ${j + 1}`);
+                        return;
+                    }
+                }
+                if (!q.correctAnswer) {
+                    setError(`กรุณาเลือกคำตอบที่ถูกต้องของข้อ ${i + 1}`);
+                    return;
+                }
             }
         }
 
@@ -421,11 +655,11 @@ const CreateExam = () => {
                 </div>
 
                 {/* CSV Import Section */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 space-y-4">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                         <div>
                             <h2 className="text-lg font-semibold text-gray-900">นำเข้าข้อสอบจาก CSV</h2>
-                            <p className="text-sm text-gray-500 mt-0.5">ดาวน์โหลดเทมเพลต → กรอกข้อสอบ → อัปโหลด</p>
+                            <p className="text-sm text-gray-500 mt-0.5">รองรับปรนัย, Checkbox (เลือกได้หลายข้อ) และอัตนัย AI พร้อม Ground Truth, Rubric และ Key Concepts</p>
                             <p className="text-xs text-gray-400 mt-1">
                                 คำถาม Checkbox ใช้ QuestionType เป็น checkbox และคั่นคำตอบที่ถูกด้วย | เช่น 1|3
                             </p>
@@ -468,13 +702,23 @@ const CreateExam = () => {
                                     </h3>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    <select
+                                        value={q.type}
+                                        onChange={(e) => changeQuestionType(qIndex, e.target.value)}
+                                        className="px-2.5 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-gray-700"
+                                        aria-label={`ประเภทคำถามข้อที่ ${qIndex + 1}`}
+                                    >
+                                        <option value="radio">ปรนัย (เลือกคำตอบเดียว)</option>
+                                        <option value="checkbox">ปรนัยหลายคำตอบ (Checkbox)</option>
+                                        <option value="text">อัตนัย (ตรวจด้วย AI)</option>
+                                    </select>
                                     <div className="flex items-center gap-1">
                                         <label className="text-xs text-gray-500">คะแนน:</label>
                                         <input
                                             type="number"
                                             min="1"
                                             value={q.points}
-                                            onChange={(e) => updateQuestion(qIndex, 'points', Number(e.target.value))}
+                                            onChange={(e) => updatePoints(qIndex, Number(e.target.value))}
                                             className="w-16 px-2 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                                         />
                                     </div>
@@ -497,19 +741,6 @@ const CreateExam = () => {
                                 </div>
                             </div>
 
-                            {/* Question type */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">รูปแบบคำตอบ</label>
-                                <select
-                                    value={q.type}
-                                    onChange={(e) => updateQuestion(qIndex, 'type', e.target.value)}
-                                    className="w-full sm:w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white"
-                                >
-                                    <option value="radio">ปรนัย — เลือกคำตอบเดียว</option>
-                                    <option value="checkbox">Checkbox — เลือกได้ 1 ข้อหรือหลายข้อ</option>
-                                </select>
-                            </div>
-
                             {/* Prompt */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">คำถาม</label>
@@ -520,7 +751,16 @@ const CreateExam = () => {
                                 />
                             </div>
 
-                            {/* Choices - clickable cards */}
+                            {q.type === 'text' && q.gradingMode === 'ai' ? (
+                                <AIGradingConfig
+                                    value={q.aiGrading}
+                                    points={q.points}
+                                    providerSettings={providerSettings}
+                                    onChange={(next) => updateQuestion(qIndex, 'aiGrading', next)}
+                                    onTest={(studentAnswer) => testAiGrade(qIndex, studentAnswer)}
+                                />
+                            ) : (
+                            /* Choices - clickable cards */
                             <div className="space-y-2">
                                 <label className="block text-sm font-medium text-gray-700">
                                     ตัวเลือก <span className="text-gray-400 font-normal">
@@ -577,8 +817,9 @@ const CreateExam = () => {
                                     <Plus size={14} /> เพิ่มตัวเลือก
                                 </button>
                             </div>
+                            )}
 
-                            {q.correctAnswer && (
+                            {q.type !== 'text' && q.correctAnswer && (
                                 <p className="text-xs text-green-600 font-medium">
                                     ✓ คำตอบที่ถูกต้อง: ตัวเลือก {q.correctAnswer.split(',').map(value => value.toUpperCase()).join(', ')}
                                 </p>

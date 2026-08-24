@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "migrate:ai-grading": "node scripts/migrations/001-ai-grading.js",
     "test:capacity-bot": "node scripts/capacityBot.js"
   },
   "keywords": [],
