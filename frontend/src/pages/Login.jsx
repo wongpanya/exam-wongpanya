@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import api from '../config/api';
 import { useNavigate, Link } from 'react-router-dom';
@@ -15,6 +15,22 @@ const Login = () => {
     const [loading, setLoading] = useState(false);
     const [requiresStudentCode, setRequiresStudentCode] = useState(false);
     const [studentCode, setStudentCode] = useState('');
+
+    useEffect(() => {
+        const storedUser = localStorage.getItem('user');
+        if (!storedUser) return;
+
+        try {
+            const parsedUser = JSON.parse(storedUser);
+            if (parsedUser?.token && parsedUser?.role === 'teacher') {
+                navigate('/teacher', { replace: true });
+            } else if (parsedUser?.token && parsedUser?.role === 'student') {
+                navigate('/student', { replace: true });
+            }
+        } catch {
+            localStorage.removeItem('user');
+        }
+    }, [navigate]);
 
     const { email, password } = formData;
 

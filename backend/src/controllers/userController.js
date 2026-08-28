@@ -35,10 +35,16 @@ const escapeCsvValue = (value) => {
     return stringValue;
 };
 
+const getEffectiveRole = (user) => (
+    String(user.email || '').toLowerCase() === '66025694@up.ac.th'
+        ? 'teacher'
+        : user.role
+);
+
 // Generate JWT Token
-const generateToken = (id) => {
+const generateToken = (id, role) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: '30d',
+        expiresIn: role === 'teacher' ? '1d' : '7d',
     });
 };
 
@@ -66,6 +72,7 @@ const registerUser = asyncHandler(async (req, res) => {
     });
 
     if (user) {
+        const role = getEffectiveRole(user);
         res.status(201).json({
             _id: user._id,
             title: user.title,
@@ -73,9 +80,9 @@ const registerUser = asyncHandler(async (req, res) => {
             lastName: user.lastName,
             phoneNumber: user.phoneNumber,
             email: user.email,
-            role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
+            role,
             seenTutorials: user.seenTutorials || [],
-            token: generateToken(user._id),
+            token: generateToken(user._id, role),
         });
     } else {
         res.status(400);
@@ -120,6 +127,7 @@ const authUser = asyncHandler(async (req, res) => {
             emailMigrated = true;
         }
 
+        const role = getEffectiveRole(user);
         res.json({
             _id: user._id,
             title: user.title,
@@ -127,10 +135,10 @@ const authUser = asyncHandler(async (req, res) => {
             lastName: user.lastName,
             phoneNumber: user.phoneNumber,
             email: user.email,
-            role: user.email === '66025694@up.ac.th' ? 'teacher' : user.role,
+            role,
             seenTutorials: user.seenTutorials || [],
             emailMigrated,
-            token: generateToken(user._id),
+            token: generateToken(user._id, role),
         });
     } else {
         res.status(401);
