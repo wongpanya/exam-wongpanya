@@ -22,6 +22,37 @@ const normalizeAnswer = (answer) => String(answer || '')
     .sort()
     .join(',');
 
+const shuffleArray = (values) => {
+    const shuffled = [...values];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+};
+
+const createChoiceOrder = (exam, shouldShuffle) => {
+    if (!shouldShuffle) return [];
+
+    return exam.questions
+        .filter(question => Array.isArray(question.choices) && question.choices.length > 1)
+        .map(question => ({
+            questionId: question.questionId,
+            choiceValues: shuffleArray(question.choices.map(choice => choice.value)),
+        }));
+};
+
+const orderChoices = (choices, choiceValues) => {
+    if (!choiceValues || choiceValues.length === 0) return choices;
+
+    const choicesByValue = new Map(choices.map(choice => [choice.value, choice]));
+    const orderedValues = new Set(choiceValues);
+    return [
+        ...choiceValues.map(value => choicesByValue.get(value)).filter(Boolean),
+        ...choices.filter(choice => !orderedValues.has(choice.value)),
+    ];
+};
+
 const answersMatch = (selectedAnswer, correctAnswer) => (
     normalizeAnswer(selectedAnswer) === normalizeAnswer(correctAnswer)
 );
@@ -140,7 +171,14 @@ const startExam = asyncHandler(async (req, res) => {
         return res.json(session);
     }
 
-    const { qrRotateInterval, qrRefreshEnabled, shuffleQuestions, cheatConfig, maxCheatEvents } = req.body;
+    const {
+        qrRotateInterval,
+        qrRefreshEnabled,
+        shuffleQuestions,
+        shuffleChoices,
+        cheatConfig,
+        maxCheatEvents,
+    } = req.body;
 
     // Default all cheat types to enabled if not provided
     const defaultCheatConfig = {
@@ -165,6 +203,7 @@ const startExam = asyncHandler(async (req, res) => {
         qrRotateInterval: qrRotateInterval || 10,
         qrRefreshEnabled,
         shuffleQuestions: shuffleQuestions || false,
+        shuffleChoices: shuffleChoices || false,
         cheatConfig: cheatConfig && Object.keys(cheatConfig).length > 0 ? cheatConfig : defaultCheatConfig,
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
     });
@@ -344,12 +383,7 @@ const joinExam = asyncHandler(async (req, res) => {
 
         // Handle randomization
         let questionOrder = exam.questions.map(q => q.questionId);
-        if (session.shuffleQuestions) {
-            for (let i = questionOrder.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [questionOrder[i], questionOrder[j]] = [questionOrder[j], questionOrder[i]];
-            }
-        }
+        if (session.shuffleQuestions) questionOrder = shuffleArray(questionOrder);
 
         attempt = await ExamAttempt.create({
             exam: session.exam,
@@ -357,6 +391,7 @@ const joinExam = asyncHandler(async (req, res) => {
             student: req.user._id,
             totalPoints,
             questionOrder,
+            choiceOrder: createChoiceOrder(exam, session.shuffleChoices),
             answers: [],
         });
 
@@ -445,12 +480,7 @@ const joinExamByCode = asyncHandler(async (req, res) => {
 
         // Handle randomization
         let questionOrder = exam.questions.map(q => q.questionId);
-        if (session.shuffleQuestions) {
-            for (let i = questionOrder.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [questionOrder[i], questionOrder[j]] = [questionOrder[j], questionOrder[i]];
-            }
-        }
+        if (session.shuffleQuestions) questionOrder = shuffleArray(questionOrder);
 
         attempt = await ExamAttempt.create({
             exam: session.exam,
@@ -458,6 +488,7 @@ const joinExamByCode = asyncHandler(async (req, res) => {
             student: req.user._id,
             totalPoints,
             questionOrder,
+            choiceOrder: createChoiceOrder(exam, session.shuffleChoices),
             answers: [],
         });
 
@@ -529,11 +560,22 @@ const getAttempt = asyncHandler(async (req, res) => {
         const qMap = new Map(exam.questions.map(q => [q.questionId, q]));
         questions = attempt.questionOrder.map(id => qMap.get(id)).filter(Boolean);
     }
+
+    // Generate and persist a choice order for older attempts if needed.
+    if (session.shuffleChoices && (!attempt.choiceOrder || attempt.choiceOrder.length === 0)) {
+        attempt.choiceOrder = createChoiceOrder(exam, true);
+        await attempt.save();
+    }
+
+    const choiceOrderMap = new Map(
+        (attempt.choiceOrder || []).map(order => [order.questionId, order.choiceValues])
+    );
+
     questions = questions.map(question => ({
         questionId: question.questionId,
         type: question.type,
         prompt: question.prompt,
-        choices: question.choices,
+        choices: orderChoices(question.choices || [], choiceOrderMap.get(question.questionId)),
         points: question.points,
     }));
 

@@ -24,6 +24,7 @@ const ExamSession = () => {
     const [rotateInterval, setRotateInterval] = useState(10);
     const [qrRefreshEnabled, setQrRefreshEnabled] = useState(true);
     const [shuffleQuestions, setShuffleQuestions] = useState(false);
+    const [shuffleChoices, setShuffleChoices] = useState(false);
 
     const [maxCheatEvents, setMaxCheatEvents] = useState(1);
     const [refreshDisabled, setRefreshDisabled] = useState(false);
@@ -85,6 +86,7 @@ const ExamSession = () => {
                     setRotateInterval(statusRes.data.qrRotateInterval || 10);
                     setQrRefreshEnabled(statusRes.data.qrRefreshEnabled !== false);
                     setShuffleQuestions(statusRes.data.shuffleQuestions || false);
+                    setShuffleChoices(statusRes.data.shuffleChoices || false);
                     setMaxCheatEvents(statusRes.data.maxCheatEvents || 1);
                     setShowSettings(false);
                     await fetchQR();
@@ -113,7 +115,7 @@ const ExamSession = () => {
         try {
             const { data } = await api.post(
                 `/exam-sessions/${id}/start`,
-                { qrRotateInterval: rotateInterval, qrRefreshEnabled, shuffleQuestions, maxCheatEvents }
+                { qrRotateInterval: rotateInterval, qrRefreshEnabled, shuffleQuestions, shuffleChoices, maxCheatEvents }
             );
             setSession(data);
             setShowSettings(false);
@@ -368,23 +370,43 @@ const ExamSession = () => {
 
                     {/* Shuffle */}
                     <div className="border-t border-gray-100 pt-4">
-                        <label className="flex items-center gap-3 cursor-pointer">
-                            <input
-                                type="checkbox"
-                                className="hidden"
-                                checked={shuffleQuestions}
-                                onChange={(e) => setShuffleQuestions(e.target.checked)}
-                            />
-                            <div className={`relative w-12 h-6 rounded-full transition ${shuffleQuestions ? 'bg-indigo-600' : 'bg-gray-300'}`}>
-                                <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${shuffleQuestions ? 'translate-x-6' : ''}`} />
-                            </div>
-                            <div>
-                                <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                                    <Shuffle size={14} /> สุ่มลำดับข้อสอบ
-                                </span>
-                                <p className="text-xs text-gray-400">นักเรียนแต่ละคนจะเห็นข้อสอบคนละลำดับ</p>
-                            </div>
-                        </label>
+                        <div className="space-y-4">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="hidden"
+                                    checked={shuffleQuestions}
+                                    onChange={(e) => setShuffleQuestions(e.target.checked)}
+                                />
+                                <div className={`relative w-12 h-6 rounded-full transition ${shuffleQuestions ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${shuffleQuestions ? 'translate-x-6' : ''}`} />
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                                        <Shuffle size={14} /> สุ่มลำดับข้อสอบ
+                                    </span>
+                                    <p className="text-xs text-gray-400">นักเรียนแต่ละคนจะเห็นข้อสอบคนละลำดับ</p>
+                                </div>
+                            </label>
+
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="hidden"
+                                    checked={shuffleChoices}
+                                    onChange={(e) => setShuffleChoices(e.target.checked)}
+                                />
+                                <div className={`relative w-12 h-6 rounded-full transition ${shuffleChoices ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${shuffleChoices ? 'translate-x-6' : ''}`} />
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                                        <Shuffle size={14} /> สุ่มลำดับตัวเลือกคำตอบ
+                                    </span>
+                                    <p className="text-xs text-gray-400">นักเรียนแต่ละคนจะเห็นตัวเลือกคำตอบคนละลำดับ</p>
+                                </div>
+                            </label>
+                        </div>
                     </div>
 
                     {/* Duration info */}
@@ -421,6 +443,7 @@ const ExamSession = () => {
                     <p className="text-gray-500 mt-1">{exam?.title}</p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
                         {shuffleQuestions && <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">🔀 สุ่มข้อ</span>}
+                        {shuffleChoices && <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">🔀 สุ่มคำตอบ</span>}
                         <span className="bg-gray-100 px-2 py-0.5 rounded">{session?.qrRefreshEnabled ? `QR ทุก ${rotateInterval}s` : 'QR คงที่'}</span>
                     </div>
                     {session?.autoStopAt && !isEnded && (

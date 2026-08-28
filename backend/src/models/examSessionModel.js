@@ -44,6 +44,10 @@ const examSessionSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    shuffleChoices: {
+        type: Boolean,
+        default: false,
+    },
     activeShortCode: {
         type: String,
         default: null,

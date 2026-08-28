@@ -11,6 +11,17 @@ const answerSchema = new mongoose.Schema({
     },
 }, { _id: false });
 
+const choiceOrderSchema = new mongoose.Schema({
+    questionId: {
+        type: String,
+        required: true,
+    },
+    choiceValues: {
+        type: [String],
+        default: [],
+    },
+}, { _id: false });
+
 const examAttemptSchema = new mongoose.Schema({
     exam: {
         type: mongoose.Schema.Types.ObjectId,
@@ -30,6 +41,7 @@ const examAttemptSchema = new mongoose.Schema({
     questionOrder: [{
         type: String // store randomized questionIds
     }],
+    choiceOrder: [choiceOrderSchema],
     answers: [answerSchema],
     score: {
         type: Number,

@@ -646,7 +646,7 @@ const TakeExam = () => {
                                         <p className="text-xs text-indigo-600 mb-3">เลือกได้หลายคำตอบ</p>
                                     )}
                                     <div className="space-y-2">
-                                        {q.choices.map((choice) => {
+                                        {q.choices.map((choice, choiceIndex) => {
                                             const isSelected = q.type === 'checkbox'
                                                 ? String(answers[q.questionId] || '').split(',').includes(choice.value)
                                                 : answers[q.questionId] === choice.value;
@@ -665,7 +665,7 @@ const TakeExam = () => {
                                                         ? 'bg-indigo-500 text-white'
                                                         : 'bg-gray-200 text-gray-500'
                                                         }`}>
-                                                        {q.type === 'checkbox' && isSelected ? <CheckCircle size={16} /> : choice.value.toUpperCase()}
+                                                        {q.type === 'checkbox' && isSelected ? <CheckCircle size={16} /> : String.fromCharCode(65 + choiceIndex)}
                                                     </div>
                                                     <span>{choice.label}</span>
                                                 </button>
