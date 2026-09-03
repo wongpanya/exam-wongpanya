@@ -67,7 +67,7 @@ const ExamAttempts = () => {
         if (attempts.length === 0) return;
 
         // Define base CSV headers
-        const baseHeaders = ['ชื่อ', 'นามสกุล', 'อีเมล', 'สถานะ', 'คะแนน', 'คะแนนเต็ม', 'จำนวนข้อที่ตอบ', 'เวลาที่ใช้', 'ส่งเมื่อ'];
+        const baseHeaders = ['ชื่อ', 'นามสกุล', 'อีเมล', 'สถานะ', 'คะแนน', 'คะแนนเต็ม', 'จำนวนข้อที่ตอบ', 'เวลาเริ่มสอบ', 'ส่งเมื่อ', 'เวลาที่ใช้'];
         
         // Add question headers if exam details are available
         const questionHeaders = examDetails?.questions?.map((q, i) => `ข้อ ${i + 1} (${q.points} คะแนน)`) || [];
@@ -77,19 +77,21 @@ const ExamAttempts = () => {
         const rows = attempts.map(a => {
             const statusText = a.status === 'submitted' ? 'ส่งแล้ว' : a.status === 'suspended' ? 'ถูกระงับ' : 'กำลังทำ';
             const duration = getDuration(a.startedAt, a.submittedAt);
+            const startedAt = a.startedAt ? new Date(a.startedAt).toLocaleString('th-TH') : '-';
             const submittedAt = a.submittedAt ? new Date(a.submittedAt).toLocaleString('th-TH') : '-';
             const answeredCount = a.answers ? a.answers.filter(ans => ans.selectedAnswer && ans.selectedAnswer.trim() !== '').length : 0;
             
             const baseRow = [
-                `"${a.student.firstName}"`,
-                `"${a.student.lastName}"`,
-                `"${a.student.email}"`,
+                `"${a.student?.firstName || ''}"`,
+                `"${a.student?.lastName || ''}"`,
+                `"${a.student?.email || ''}"`,
                 `"${statusText}"`,
                 a.score !== null ? a.score : '-',
                 a.totalPoints,
                 answeredCount,
-                `"${duration}"`,
-                `"${submittedAt}"`
+                `"${startedAt}"`,
+                `"${submittedAt}"`,
+                `"${duration}"`
             ];
 
             // Add question answers (1 for correct, 0 for incorrect, - for unanswered)
@@ -354,7 +356,10 @@ const ExamAttempts = () => {
                                             {getDuration(attempt.startedAt, attempt.submittedAt)}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">
-                                            {formatDateTime(attempt.submittedAt)}
+                                            <div>{formatDateTime(attempt.submittedAt)}</div>
+                                            {attempt.startedAt && (
+                                                <div className="text-xs text-gray-400 mt-0.5">เริ่ม: {formatDateTime(attempt.startedAt)}</div>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4">
                                             {firstResult ? (
