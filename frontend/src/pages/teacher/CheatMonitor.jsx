@@ -252,38 +252,6 @@ const CheatMonitor = () => {
                 {/* Overview Tab */}
                 {activeTab === 'overview' && (
                     <div className="h-full overflow-y-auto p-1 space-y-6">
-                        {/* Auto-Suspend Rule Banner */}
-                        {data?.maxCheatEvents !== undefined && (
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                                        data.maxCheatEvents > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
-                                    }`}>
-                                        <Lock size={20} />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h4 className="font-semibold text-gray-900">
-                                                การระงับการสอบอัตโนมัติ (Auto-Suspend)
-                                            </h4>
-                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                                data.maxCheatEvents > 0
-                                                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                                    : 'bg-gray-100 text-gray-600 border border-gray-200'
-                                            }`}>
-                                                {data.maxCheatEvents > 0 ? `ระงับที่ ${data.maxCheatEvents} ครั้ง` : 'ปิดใช้งาน'}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-gray-500 mt-0.5">
-                                            {data.maxCheatEvents > 0
-                                                ? `เมื่อนักเรียนทำผิดกฎข้อสอบครบ ${data.maxCheatEvents} ครั้ง ระบบจะระงับการสอบทันที (หน้าจอของนักเรียนจะถูกล็อก)`
-                                                : 'ห้องสอบนี้ไม่ได้เปิดระบบระงับการสอบอัตโนมัติ (อาจารย์สามารถกดระงับรายบุคคลได้ด้วยตนเอง)'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-semibold mb-4">ประเภทเหตุการณ์</h3>
