@@ -272,7 +272,10 @@ const getExams = asyncHandler(async (req, res) => {
     if (req.user.email !== '66025694@up.ac.th') {
         query = { createdBy: req.user._id };
     }
-    const exams = await Exam.find(query).populate('category').sort({ createdAt: -1 });
+    const exams = await Exam.find(query)
+        .select('-questions.prompt -questions.choices -questions.aiGrading')
+        .populate('category')
+        .sort({ createdAt: -1 });
     res.json(exams);
 });
 

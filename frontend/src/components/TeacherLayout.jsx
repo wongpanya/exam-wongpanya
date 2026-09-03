@@ -1,7 +1,16 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { LayoutDashboard, Users, LogOut, Menu, X, FileText, PlusCircle, KeyRound, FlaskConical } from 'lucide-react';
 import api from '../config/api';
+
+const ContentLoader = () => (
+    <div className="py-24 flex items-center justify-center">
+        <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-3"></div>
+            <p className="text-gray-400 text-xs">กำลังโหลดเนื้อหา...</p>
+        </div>
+    </div>
+);
 
 const TeacherLayout = () => {
     const navigate = useNavigate();
@@ -18,7 +27,7 @@ const TeacherLayout = () => {
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [announcement, setAnnouncement] = useState(null);
 
-    // Fetch announcements when loading layout
+    // Fetch announcements once when loading layout (not on every route change)
     useEffect(() => {
         const fetchAnnouncements = async () => {
             const storedUser = localStorage.getItem('user');
@@ -41,7 +50,27 @@ const TeacherLayout = () => {
         };
 
         fetchAnnouncements();
-    }, [location.pathname]);
+    }, []);
+
+    // Preload frequent pages during idle time so navigation is instant
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            import('../pages/teacher/TeacherHome');
+            import('../pages/teacher/ExamList');
+            import('../pages/teacher/StudentList');
+            import('../pages/teacher/CreateExam');
+        }, 1200);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const preloadRoute = (path) => {
+        if (path === '/teacher') import('../pages/teacher/TeacherHome');
+        else if (path === '/teacher/students') import('../pages/teacher/StudentList');
+        else if (path === '/teacher/exams') import('../pages/teacher/ExamList');
+        else if (path === '/teacher/exams/create') import('../pages/teacher/CreateExam');
+        else if (path === '/teacher/ai-settings') import('../pages/teacher/AIProviderSettings');
+        else if (path === '/teacher/test-ai-exam') import('../pages/teacher/TestAIExam');
+    };
 
     const handleCloseAnnouncement = async () => {
         if (!announcement) return;
@@ -178,6 +207,8 @@ const TeacherLayout = () => {
                                 navigate(item.path);
                                 setSidebarOpen(false);
                             }}
+                            onMouseEnter={() => preloadRoute(item.path)}
+                            onFocus={() => preloadRoute(item.path)}
                             className={`flex items-center w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer ${isActive(item.path)
                                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
                                 : 'text-gray-300 hover:bg-gray-800 hover:text-white'
@@ -208,7 +239,9 @@ const TeacherLayout = () => {
             {/* Main Content (Always md:ml-64 on desktop, pt-14 md:pt-0 on mobile) */}
             <main className="flex-1 min-h-screen md:ml-64 pt-14 md:pt-0 transition-all duration-300 w-full min-w-0 overflow-x-clip">
                 <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0">
-                    <Outlet />
+                    <Suspense fallback={<ContentLoader />}>
+                        <Outlet />
+                    </Suspense>
                 </div>
             </main>
 

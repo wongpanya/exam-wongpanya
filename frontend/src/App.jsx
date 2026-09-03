@@ -4,12 +4,14 @@ import { DialogProvider } from './components/DialogProvider';
 import { ToastProvider } from './components/ToastProvider';
 import ErrorBoundary from './components/ErrorBoundary';
 
+import TeacherLayout from './components/TeacherLayout';
+import StudentLayout from './components/StudentLayout';
+
 // Lazy load all pages
 const Register = lazy(() => import('./pages/Register'));
 const Login = lazy(() => import('./pages/Login'));
 const Home = lazy(() => import('./pages/Home'));
 const NotFound = lazy(() => import('./pages/NotFound'));
-const TeacherLayout = lazy(() => import('./components/TeacherLayout'));
 const TeacherHome = lazy(() => import('./pages/teacher/TeacherHome'));
 const StudentList = lazy(() => import('./pages/teacher/StudentList'));
 const ExamList = lazy(() => import('./pages/teacher/ExamList'));
@@ -25,7 +27,6 @@ const AIProviderSettings = lazy(() => import('./pages/teacher/AIProviderSettings
 const TestAIExam = lazy(() => import('./pages/teacher/TestAIExam'));
 const TestAIExamSessionResult = lazy(() => import('./pages/teacher/TestAIExamSessionResult'));
 const AttendanceSummary = lazy(() => import('./pages/teacher/AttendanceSummary'));
-const StudentLayout = lazy(() => import('./components/StudentLayout'));
 const StudentHome = lazy(() => import('./pages/student/StudentHome'));
 const StudentHistory = lazy(() => import('./pages/student/StudentHistory'));
 const JoinExam = lazy(() => import('./pages/student/JoinExam'));
