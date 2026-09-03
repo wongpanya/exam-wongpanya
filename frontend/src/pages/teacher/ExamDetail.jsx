@@ -102,13 +102,16 @@ const ExamDetail = () => {
             <div className="flex items-center gap-3">
                 <button
                     onClick={() => {
-                        if (exam.category && exam.category._id) {
+                        if (window.history.state && window.history.state.idx > 0) {
+                            navigate(-1);
+                        } else if (exam.category && exam.category._id) {
                             navigate(`/teacher/exams/category/${exam.category._id}`);
                         } else {
                             navigate('/teacher/exams');
                         }
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition"
+                    className="p-2 hover:bg-gray-100 rounded-lg transition cursor-pointer"
+                    title="ย้อนกลับ"
                 >
                     <ArrowLeft size={20} className="text-gray-600" />
                 </button>

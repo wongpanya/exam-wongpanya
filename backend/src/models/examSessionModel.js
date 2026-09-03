@@ -90,6 +90,9 @@ const examSessionSchema = new mongoose.Schema({
 
 examSessionSchema.index({ exam: 1, status: 1 });
 examSessionSchema.index({ createdBy: 1 });
+examSessionSchema.index({ activeShortCode: 1 }, { sparse: true });
+examSessionSchema.index({ activeQrToken: 1 }, { sparse: true });
+examSessionSchema.index({ exam: 1, createdAt: -1 });
 
 const ExamSession = mongoose.model('ExamSession', examSessionSchema);
 

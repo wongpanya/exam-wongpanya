@@ -90,6 +90,9 @@ const examAttemptSchema = new mongoose.Schema({
 
 // One student can only have one attempt per session
 examAttemptSchema.index({ session: 1, student: 1 }, { unique: true });
+examAttemptSchema.index({ exam: 1, session: 1 });
+examAttemptSchema.index({ student: 1, createdAt: -1 });
+examAttemptSchema.index({ exam: 1, student: 1 });
 examAttemptSchema.index({ gradingStatus: 1, updatedAt: 1 });
 
 const ExamAttempt = mongoose.model('ExamAttempt', examAttemptSchema);

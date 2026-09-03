@@ -12,6 +12,7 @@ const { generateQRToken, parseQRToken, verifyQRToken } = require('../utils/qrTok
 const cheatTracker = require('../utils/cheatTracker');
 const { getIO } = require('../config/socket');
 const { prepareAttemptGrading } = require('../services/grading/gradingService');
+const { examCache } = require('../utils/cache');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
 
@@ -543,16 +544,29 @@ const getAttempt = asyncHandler(async (req, res) => {
     // If session ended, maybe show results?
 
     // Positive projection prevents answer keys, rubrics, ground truths, and provider settings leaking.
-    const exam = await Exam.findById(session.exam).select([
-        'title',
-        'description',
-        'durationMin',
-        'questions.questionId',
-        'questions.type',
-        'questions.prompt',
-        'questions.choices',
-        'questions.points',
-    ].join(' '));
+    const cacheKey = `exam_student_${session.exam}`;
+    let exam = examCache.get(cacheKey);
+    if (!exam) {
+        exam = await Exam.findById(session.exam).select([
+            'title',
+            'description',
+            'durationMin',
+            'questions.questionId',
+            'questions.type',
+            'questions.prompt',
+            'questions.choices',
+            'questions.points',
+        ].join(' ')).lean();
+
+        if (exam) {
+            examCache.set(cacheKey, exam, 120);
+        }
+    }
+
+    if (!exam) {
+        res.status(404);
+        throw new Error('Exam not found');
+    }
 
     // Reorder questions if randomized
     let questions = exam.questions;
@@ -843,7 +857,8 @@ const getCheatLogs = asyncHandler(async (req, res) => {
     // Get logs
     const logs = await CheatingLog.find({ session: session._id })
         .populate('student', 'firstName lastName email')
-        .sort({ timestamp: -1 });
+        .sort({ timestamp: -1 })
+        .lean();
 
     // Aggregate summary
     const summary = await CheatingLog.aggregate([
@@ -882,7 +897,7 @@ const getCheatLogs = asyncHandler(async (req, res) => {
     const attempts = await ExamAttempt.find({
         session: session._id,
         student: { $in: studentIds }
-    });
+    }).lean();
 
     // Merge status and score into byStudent
     const byStudentWithStatus = byStudent.map(s => {
@@ -1046,7 +1061,7 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
 // @route   GET /api/exam-sessions/:examId/history
 // @access  Private/Teacher
 const getExamHistory = asyncHandler(async (req, res) => {
-    const sessions = await ExamSession.find({ exam: req.params.examId }).sort({ startedAt: -1 });
+    const sessions = await ExamSession.find({ exam: req.params.examId }).sort({ startedAt: -1 }).lean();
     if (!sessions.length) return res.json([]);
     
     const sessionIds = sessions.map(s => s._id);
@@ -1077,7 +1092,7 @@ const getExamHistory = asyncHandler(async (req, res) => {
         const avgScore = stats.submitted > 0 ? (stats.totalScore / stats.submitted).toFixed(1) : 0;
         const avgPercent = stats.maxPoints > 0 ? ((avgScore / stats.maxPoints) * 100).toFixed(0) : 0;
         return {
-            ...session.toObject(),
+            ...session,
             studentCount: stats.total,
             submittedCount: stats.submitted,
             avgScore: avgPercent,
@@ -1094,12 +1109,12 @@ const getExamHistory = asyncHandler(async (req, res) => {
 const getSessionAttempts = asyncHandler(async (req, res) => {
     let session;
     if (req.query.sessionId) {
-        session = await ExamSession.findById(req.query.sessionId);
+        session = await ExamSession.findById(req.query.sessionId).lean();
     } else {
         session = await ExamSession.findOne({
             exam: req.params.examId,
             status: 'active'
-        });
+        }).lean();
     }
 
     if (!session) return res.json([]);
@@ -1110,11 +1125,12 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
     }
 
     const attempts = await ExamAttempt.find({ session: session._id })
-        .populate('student', 'firstName lastName email');
+        .populate('student', 'firstName lastName email')
+        .lean();
 
     const gradingResults = await GradingResult.find({
         attempt: { $in: attempts.map(attempt => attempt._id) },
-    }).select('attempt questionId status aiScore teacherScore finalScore maxScore needsHumanReview provider model');
+    }).select('attempt questionId status aiScore teacherScore finalScore maxScore needsHumanReview provider model').lean();
     const resultsByAttempt = new Map();
     gradingResults.forEach((result) => {
         const key = result.attempt.toString();
@@ -1123,7 +1139,7 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
     });
 
     res.json(attempts.map(attempt => ({
-        ...attempt.toObject(),
+        ...attempt,
         gradingResults: resultsByAttempt.get(attempt._id.toString()) || [],
     })));
 });

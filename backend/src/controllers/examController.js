@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Exam = require('../models/examModel');
 const Category = require('../models/categoryModel');
 const User = require('../models/userModel');
+const { examCache, categoryCache } = require('../utils/cache');
 
 const IMPORT_MATCH_MODES = ['studentCode', 'email', 'both'];
 
@@ -261,6 +262,7 @@ const createExam = asyncHandler(async (req, res) => {
         category: categoryId,
     });
 
+    examCache.delPattern('exam_');
     res.status(201).json(exam);
 });
 
@@ -275,7 +277,8 @@ const getExams = asyncHandler(async (req, res) => {
     const exams = await Exam.find(query)
         .select('-questions.prompt -questions.choices -questions.aiGrading')
         .populate('category')
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean();
     res.json(exams);
 });
 
@@ -283,11 +286,16 @@ const getExams = asyncHandler(async (req, res) => {
 // @route   GET /api/exams/:id
 // @access  Private/Teacher
 const getExamById = asyncHandler(async (req, res) => {
-    const exam = await Exam.findById(req.params.id).populate('category');
+    const cacheKey = `exam_${req.params.id}`;
+    let exam = examCache.get(cacheKey);
 
     if (!exam) {
-        res.status(404);
-        throw new Error('Exam not found');
+        exam = await Exam.findById(req.params.id).populate('category').lean();
+        if (!exam) {
+            res.status(404);
+            throw new Error('Exam not found');
+        }
+        examCache.set(cacheKey, exam, 90);
     }
 
     // Ensure teacher owns this exam
@@ -342,7 +350,8 @@ const updateExam = asyncHandler(async (req, res) => {
     }
 
     const updatedExam = await exam.save();
-    const populatedExam = await Exam.findById(updatedExam._id).populate('category');
+    examCache.delPattern('exam_');
+    const populatedExam = await Exam.findById(updatedExam._id).populate('category').lean();
     res.json(populatedExam);
 });
 
@@ -363,6 +372,7 @@ const deleteExam = asyncHandler(async (req, res) => {
     }
 
     await exam.deleteOne();
+    examCache.delPattern('exam_');
     res.json({ message: 'Exam deleted' });
 });
 
@@ -384,7 +394,7 @@ const getDistinctCategories = asyncHandler(async (req, res) => {
         query.isArchived = { $ne: true };
     }
 
-    const categories = await Category.find(query).sort({ name: 1 });
+    const categories = await Category.find(query).sort({ name: 1 }).lean();
     res.json(categories);
 });
 

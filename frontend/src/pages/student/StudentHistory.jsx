@@ -67,8 +67,15 @@ const StudentHistory = () => {
             {/* Header */}
             <div className="flex items-center gap-3">
                 <button
-                    onClick={() => navigate('/student')}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition"
+                    onClick={() => {
+                        if (window.history.state && window.history.state.idx > 0) {
+                            navigate(-1);
+                        } else {
+                            navigate('/student');
+                        }
+                    }}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition cursor-pointer"
+                    title="ย้อนกลับ"
                 >
                     <ArrowLeft size={20} className="text-gray-600" />
                 </button>

@@ -184,8 +184,15 @@ const CheatMonitor = () => {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <button
-                    onClick={() => navigate(sessionId ? `/teacher/exams/${id}/history` : `/teacher/exams/${id}/session`)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition"
+                    onClick={() => {
+                        if (window.history.state && window.history.state.idx > 0) {
+                            navigate(-1);
+                        } else {
+                            navigate(sessionId ? `/teacher/exams/${id}/history` : `/teacher/exams/${id}/session`);
+                        }
+                    }}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition cursor-pointer"
+                    title="ย้อนกลับ"
                 >
                     <ArrowLeft size={20} className="text-gray-600" />
                 </button>

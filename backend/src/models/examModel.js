@@ -128,6 +128,8 @@ const examSchema = new mongoose.Schema({
 });
 
 examSchema.index({ createdBy: 1 });
+examSchema.index({ category: 1, isArchived: 1, createdAt: -1 });
+examSchema.index({ isArchived: 1, createdAt: -1 });
 
 const Exam = mongoose.model('Exam', examSchema);
 

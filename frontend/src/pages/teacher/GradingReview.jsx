@@ -260,10 +260,16 @@ const GradingReview = () => {
             <div className="container mx-auto max-w-3xl px-4 py-8">
                 <button
                     type="button"
-                    onClick={() => navigate(backPath)}
-                    className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-indigo-700"
+                    onClick={() => {
+                        if (window.history.state && window.history.state.idx > 0) {
+                            navigate(-1);
+                        } else {
+                            navigate(backPath);
+                        }
+                    }}
+                    className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-indigo-700 cursor-pointer"
                 >
-                    <ArrowLeft size={18} /> กลับไปรายการส่งคำตอบ
+                    <ArrowLeft size={18} /> ย้อนกลับ
                 </button>
                 <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
                     <XCircle size={36} className="mx-auto mb-3 text-red-500" />
@@ -317,9 +323,16 @@ const GradingReview = () => {
                 <div className="flex min-w-0 items-start gap-3">
                     <button
                         type="button"
-                        onClick={() => navigate(backPath)}
-                        className="mt-0.5 rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 hover:text-indigo-700"
-                        aria-label="กลับไปรายการส่งคำตอบ"
+                        onClick={() => {
+                            if (window.history.state && window.history.state.idx > 0) {
+                                navigate(-1);
+                            } else {
+                                navigate(backPath);
+                            }
+                        }}
+                        className="mt-0.5 rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 hover:text-indigo-700 cursor-pointer"
+                        aria-label="ย้อนกลับ"
+                        title="ย้อนกลับ"
                     >
                         <ArrowLeft size={20} />
                     </button>
