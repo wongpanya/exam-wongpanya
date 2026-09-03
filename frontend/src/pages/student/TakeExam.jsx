@@ -3,7 +3,21 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
 import useAntiCheat from '../../hooks/useAntiCheat';
-import { Clock, Send, AlertTriangle, CheckCircle, Shield, Save, Lock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { 
+    Clock, 
+    Send, 
+    AlertTriangle, 
+    CheckCircle, 
+    Shield, 
+    Save, 
+    Lock, 
+    Wifi, 
+    WifiOff, 
+    RefreshCw, 
+    Bookmark, 
+    Check, 
+    X 
+} from 'lucide-react';
 
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
 const DEBOUNCE_SAVE_MS = 2000;
@@ -30,6 +44,15 @@ const TakeExam = () => {
     const [saving, setSaving] = useState(false);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentPage, setCurrentPage] = useState(1);
+    const [showSubmitModal, setShowSubmitModal] = useState(false);
+    const [flaggedQuestions, setFlaggedQuestions] = useState(() => {
+        try {
+            const saved = localStorage.getItem(`exam_flags_${examId}`);
+            return saved ? JSON.parse(saved) : {};
+        } catch {
+            return {};
+        }
+    });
     const questionsPerPage = 1;
 
     const timerRef = useRef(null);
@@ -267,26 +290,33 @@ const TakeExam = () => {
         });
     };
 
-    const handleSubmit = useCallback(async (force = false) => {
+    const toggleFlag = useCallback((questionId) => {
+        setFlaggedQuestions(prev => {
+            const next = { ...prev, [questionId]: !prev[questionId] };
+            if (!next[questionId]) delete next[questionId];
+            try {
+                localStorage.setItem(`exam_flags_${examId}`, JSON.stringify(next));
+            } catch {
+                // ignore
+            }
+            return next;
+        });
+    }, [examId]);
+
+    const doSubmit = useCallback(async () => {
         if (submitting || submitted || suspended) return;
 
-        const answered = Object.values(answersRef.current).filter(hasAnswer).length;
-        const total = exam?.questions?.length || 0;
-
-        // Block if not all answered (unless forced by timer)
-        if (!force && answered < total) {
-            await showAlert({ title: 'ยังตอบไม่ครบ', message: `กรุณาตอบให้ครบทุกข้อก่อนส่ง (ตอบแล้ว ${answered}/${total} ข้อ)`, variant: 'warning' });
-            return;
-        }
-
-        if (!force && !await showConfirm({ title: 'ส่งข้อสอบ', message: 'คุณต้องการส่งข้อสอบใช่หรือไม่?', confirmText: 'ส่งข้อสอบ', cancelText: 'ยกเลิก', variant: 'warning' })) return;
-
         if (!isOnline) {
-            await showAlert({ title: 'ไม่มีการเชื่อมต่อ', message: 'คุณกำลังออฟไลน์ ระบบได้บันทึกคำตอบไว้ในเครื่องแล้ว\nกรุณารอให้อินเทอร์เน็ตกลับมาเชื่อมต่อแล้วกดส่งอีกครั้ง', variant: 'warning' });
+            await showAlert({ 
+                title: 'ไม่มีการเชื่อมต่อ', 
+                message: 'คุณกำลังออฟไลน์ ระบบได้บันทึกคำตอบไว้ในเครื่องแล้ว\nกรุณารอให้อินเทอร์เน็ตกลับมาเชื่อมต่อแล้วกดส่งอีกครั้ง', 
+                variant: 'warning' 
+            });
             return;
         }
 
         setSubmitting(true);
+        setShowSubmitModal(false);
 
         try {
             const answerArray = Object.entries(answersRef.current).map(([questionId, selectedAnswer]) => ({
@@ -309,6 +339,7 @@ const TakeExam = () => {
             });
 
             localStorage.removeItem(storageKey);
+            localStorage.removeItem(`exam_flags_${examId}`);
             if (timerRef.current) clearInterval(timerRef.current);
             if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current);
         } catch (err) {
@@ -316,7 +347,18 @@ const TakeExam = () => {
         } finally {
             setSubmitting(false);
         }
-    }, [answers, exam, examId, submitting, submitted, suspended, showAlert, showConfirm]);
+    }, [examId, isOnline, storageKey, showAlert, submitting, submitted, suspended]);
+
+    const handleSubmit = useCallback((force = false) => {
+        if (submitting || submitted || suspended) return;
+
+        if (force) {
+            doSubmit();
+            return;
+        }
+
+        setShowSubmitModal(true);
+    }, [submitting, submitted, suspended, doSubmit]);
 
     // Check exam status (polled + manual)
     const checkStatus = useCallback(async () => {
@@ -456,12 +498,23 @@ const TakeExam = () => {
         currentPage * questionsPerPage
     ) || [];
 
+    const unansweredQuestions = (exam?.questions || [])
+        .map((q, index) => ({
+            questionId: q.questionId,
+            index,
+            page: Math.ceil((index + 1) / questionsPerPage),
+            isAnswered: hasAnswer(answers[q.questionId])
+        }))
+        .filter(item => !item.isAnswered);
+
+    const flaggedCount = Object.keys(flaggedQuestions).filter(id => flaggedQuestions[id]).length;
+
     return (
         <div className="space-y-4 relative">
             {/* Suspended Overlay */}
             {suspended && (
-                <div className="fixed inset-0 z-50 bg-gray-900/95 flex flex-col items-center justify-center p-8 text-center backdrop-blur-sm">
-                    <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full">
+                <div className="fixed inset-0 z-50 bg-gray-900/95 flex flex-col items-center justify-center p-8 text-center backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full animate-scale-up">
                         <Lock className="mx-auto text-red-500 mb-4" size={64} />
                         <h2 className="text-2xl font-bold text-gray-900 mb-2">การสอบถูกระงับชั่วคราว</h2>
                         <p className="text-gray-600 mb-6">
@@ -503,60 +556,78 @@ const TakeExam = () => {
                 </div>
             )}
 
-            {/* Tab hidden overlay */}
+            {/* Tab hidden overlay (Soft, professional warning) */}
             {isTabHidden && !suspended && (
-                <div className="fixed inset-0 z-40 bg-red-900/95 flex items-center justify-center">
-                    <div className="text-center text-white p-8">
-                        <AlertTriangle className="mx-auto mb-4" size={64} />
-                        <h2 className="text-2xl font-bold mb-2">⚠️ กรุณากลับมาที่หน้าสอบ</h2>
-                        <p className="text-red-200">การออกจากหน้าสอบถูกบันทึกแล้ว</p>
-                        <p className="text-red-300 text-sm mt-2">เหตุการณ์นี้จะถูกรายงานให้ผู้คุมสอบทราบ</p>
+                <div className="fixed inset-0 z-40 bg-gray-900/85 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-sm text-center border border-gray-100 animate-scale-up">
+                        <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+                            <AlertTriangle size={32} />
+                        </div>
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">กรุณากลับมาที่หน้าต่างสอบ</h2>
+                        <p className="text-gray-600 text-sm mb-4">
+                            ระบบตรวจพบว่าหน้าต่างสอบสูญเสียการโฟกัส ข้อมูลนี้ถูกบันทึกในรายงานคุมสอบ
+                        </p>
+                        <p className="text-xs text-indigo-600 font-medium bg-indigo-50 py-2 px-3 rounded-lg">
+                            คลิกที่หน้าต่างนี้เพื่อทำข้อสอบต่อ
+                        </p>
                     </div>
                 </div>
             )}
 
             {/* Sticky Timer Header */}
-            <div className="sticky top-0 z-30 bg-white border-b border-gray-200 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 shadow-sm">
-                <div className="flex items-center justify-between max-w-5xl mx-auto">
-                    <div>
-                        <h1 className="font-bold text-gray-900 text-sm sm:text-base">{exam.title}</h1>
-                        <div className="flex items-center gap-3 text-xs text-gray-500">
-                            <span>{answeredCount}/{totalQuestions} ข้อ</span>
+            <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-gray-200 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 shadow-2xs">
+                <div className="flex items-center justify-between max-w-5xl mx-auto gap-3">
+                    <div className="min-w-0 flex-1">
+                        <h1 className="font-bold text-gray-900 text-sm sm:text-base truncate">{exam.title}</h1>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                            <span>ข้อ {currentPage} จาก {totalQuestions}</span>
+                            <span>•</span>
+                            <span>ตอบแล้ว {answeredCount}/{totalQuestions} ข้อ</span>
                             {saving && (
-                                <span className="flex items-center gap-1 text-blue-500">
-                                    <Save size={10} className="animate-pulse" /> กำลังบันทึก...
+                                <span className="flex items-center gap-1 text-indigo-600 font-medium ml-1">
+                                    <Save size={11} className="animate-pulse" /> กำลังบันทึก...
                                 </span>
                             )}
                             {!saving && lastSaved && (
-                                <span className="flex items-center gap-1 text-green-500">
-                                    <Save size={10} /> บันทึกแล้ว
+                                <span className="hidden xs:inline text-emerald-600 font-medium ml-1">
+                                    ✓ บันทึกแล้ว
                                 </span>
                             )}
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {!isOnline && (
-                            <div className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium animate-pulse">
-                                <WifiOff size={12} /> ออฟไลน์
+
+                    <div className="flex items-center gap-2 shrink-0">
+                        {isOnline ? (
+                            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                                <span className="hidden sm:inline">ออนไลน์</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 rounded text-xs font-medium animate-pulse">
+                                <WifiOff size={12} />
+                                <span>ออฟไลน์</span>
                             </div>
                         )}
-                        {isOnline && (
-                            <div className="flex items-center gap-1 px-2 py-1 bg-green-50 text-green-600 rounded-lg text-xs font-medium">
-                                <Wifi size={12} /> ออนไลน์
-                            </div>
-                        )}
+
                         {cheatCount > 0 && (
-                            <div className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-medium">
-                                <Shield size={12} /> {cheatCount}
+                            <div
+                                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-gray-600 bg-gray-100"
+                                title={`บันทึกการออกนอกหน้าต่างสอบ ${cheatCount} ครั้ง`}
+                            >
+                                <Shield size={12} className="text-gray-500" />
+                                <span className="hidden sm:inline">แจ้งเตือน</span>
+                                <span>{cheatCount}</span>
                             </div>
                         )}
-                        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono font-bold text-lg ${timeLeft !== null && timeLeft <= 60
-                            ? 'bg-red-50 text-red-600 animate-pulse'
-                            : timeLeft !== null && timeLeft <= 300
-                                ? 'bg-yellow-50 text-yellow-600'
-                                : 'bg-gray-100 text-gray-700'
+
+                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-mono font-bold text-sm sm:text-base ${
+                            timeLeft !== null && timeLeft <= 60
+                                ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse'
+                                : timeLeft !== null && timeLeft <= 300
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-gray-100 text-gray-800'
                             }`}>
-                            <Clock size={18} />
+                            <Clock size={16} />
                             {timeLeft !== null ? formatTime(timeLeft) : '--:--'}
                         </div>
                     </div>
@@ -570,82 +641,130 @@ const TakeExam = () => {
             )}
 
             {/* Question Navigator */}
-            <div className={`bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4 ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}>
-                <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-bold text-gray-700">นำทางข้อสอบ</h3>
-                    <div className="flex items-center gap-3 text-xs text-gray-400">
-                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-100 border border-indigo-300 inline-block" /> ตอบแล้ว</span>
-                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white border border-gray-300 inline-block" /> ยังไม่ตอบ</span>
+            <div className={`bg-white rounded-xl border border-gray-200 p-4 mb-4 shadow-2xs ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}>
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-800">แผนผังข้อสอบ</span>
+                        <span className="text-xs text-gray-500">
+                            ({answeredCount}/{totalQuestions} ตอบแล้ว)
+                        </span>
+                        {flaggedCount > 0 && (
+                            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-medium flex items-center gap-1">
+                                <Bookmark size={11} className="fill-amber-500 text-amber-500" />
+                                ปักหมุด {flaggedCount}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="hidden sm:flex items-center gap-3 text-xs text-gray-500">
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block" /> กำลังทำ</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-indigo-100 border border-indigo-200 inline-block" /> ตอบแล้ว</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-white border border-gray-200 inline-block" /> ยังไม่ตอบ</span>
                     </div>
                 </div>
+
                 <div className="flex flex-wrap gap-2">
                     {exam.questions.map((q, index) => {
                         const pageNum = Math.ceil((index + 1) / questionsPerPage);
                         const isAnswered = hasAnswer(answers[q.questionId]);
-                        const isOnCurrentPage = pageNum === currentPage;
+                        const isFlagged = Boolean(flaggedQuestions[q.questionId]);
+                        const isCurrent = pageNum === currentPage;
                         return (
                             <button
                                 key={q.questionId}
                                 type="button"
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => goToPage(pageNum)}
-                                className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center border-2 transition-all ${isAnswered
-                                        ? 'bg-indigo-100 border-indigo-400 text-indigo-700'
-                                        : 'bg-white border-gray-300 text-gray-500 hover:border-indigo-300 hover:bg-indigo-50'
-                                    } ${isOnCurrentPage ? 'ring-2 ring-offset-1 ring-indigo-500 scale-110' : ''
-                                    }`}
+                                className={`w-9 h-9 rounded-lg text-xs font-semibold flex items-center justify-center transition cursor-pointer relative ${
+                                    isCurrent
+                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                        : isAnswered
+                                            ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                }`}
                             >
                                 {index + 1}
+                                {isFlagged && (
+                                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-white" />
+                                )}
                             </button>
                         );
                     })}
                 </div>
             </div>
 
-            {/* Questions */}
+            {/* Questions Card */}
             <div ref={questionsTopRef} className={`space-y-4 ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}>
                 {currentQuestions.map((q, index) => {
                     const globalIndex = (currentPage - 1) * questionsPerPage + index;
+                    const isFlagged = Boolean(flaggedQuestions[q.questionId]);
                     return (
-                        <div key={q.questionId} className={`bg-white rounded-xl shadow-sm p-4 sm:p-6 border-2 ${answers[q.questionId] ? 'border-gray-100' : 'border-orange-200'}`}>
-                            <div className="flex items-start justify-between mb-3">
-                                <div className="flex gap-2">
-                                    <span className="font-semibold text-indigo-600 whitespace-nowrap">ข้อ {globalIndex + 1}.</span>
-                                    <div
-                                        className="prose prose-sm max-w-none text-gray-900"
-                                        dangerouslySetInnerHTML={{ __html: q.prompt }}
-                                    />
+                        <div key={q.questionId} className="bg-white rounded-xl shadow-2xs p-5 sm:p-7 border border-gray-200">
+                            {/* Question Header */}
+                            <div className="flex items-center justify-between gap-3 pb-4 border-b border-gray-100 mb-4">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
+                                        ข้อที่ {globalIndex + 1} จาก {totalQuestions}
+                                    </span>
+                                    <span className="text-xs text-gray-400">({q.points} คะแนน)</span>
                                 </div>
-                                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full whitespace-nowrap ml-2">
-                                    {q.points} คะแนน
-                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleFlag(q.questionId)}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                                        isFlagged
+                                            ? 'bg-amber-50 text-amber-700 border border-amber-300'
+                                            : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
+                                    }`}
+                                    title={isFlagged ? 'ยกเลิกการปักหมุด' : 'ปักหมุดข้อนี้ไว้ทบทวน'}
+                                >
+                                    <Bookmark size={13} className={isFlagged ? 'fill-amber-500 text-amber-500' : 'text-gray-400'} />
+                                    <span>{isFlagged ? 'ปักหมุดแล้ว' : 'ปักหมุดทบทวน'}</span>
+                                </button>
+                            </div>
+
+                            {/* Question Prompt */}
+                            <div className="mb-5">
+                                <div
+                                    className="text-base sm:text-lg text-gray-900 font-medium leading-relaxed"
+                                    dangerouslySetInnerHTML={{ __html: q.prompt }}
+                                />
                             </div>
 
                             {q.type === 'text' ? (
                                 <div>
-                                    <label htmlFor={`essay-${q.questionId}`} className="block text-sm font-medium text-gray-700 mb-2">
-                                        คำตอบของคุณ
-                                    </label>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label htmlFor={`essay-${q.questionId}`} className="block text-sm font-medium text-gray-700">
+                                            คำตอบของคุณ
+                                        </label>
+                                        <span className="text-xs text-gray-400 font-medium">
+                                            {(() => {
+                                                const text = answers[q.questionId] || '';
+                                                const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+                                                return `${words.toLocaleString()} คำ | ${text.length.toLocaleString()} / ${MAX_ESSAY_CHARS.toLocaleString()} ตัวอักษร`;
+                                            })()}
+                                        </span>
+                                    </div>
                                     <textarea
                                         id={`essay-${q.questionId}`}
                                         value={answers[q.questionId] || ''}
                                         onChange={(event) => selectAnswer(q.questionId, event.target.value, q.type)}
                                         maxLength={MAX_ESSAY_CHARS}
-                                        rows={10}
+                                        rows={8}
                                         disabled={suspended}
                                         placeholder="พิมพ์คำตอบอัตนัยที่นี่..."
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none resize-y text-sm leading-6 disabled:bg-gray-100"
+                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none resize-y text-sm leading-6 disabled:bg-gray-100 font-sans"
                                     />
-                                    <p className="text-xs text-gray-400 text-right mt-1">
-                                        {(answers[q.questionId] || '').length.toLocaleString()} / {MAX_ESSAY_CHARS.toLocaleString()} ตัวอักษร
-                                    </p>
                                 </div>
                             ) : (
                                 <>
                                     {q.type === 'checkbox' && (
-                                        <p className="text-xs text-indigo-600 mb-3">เลือกได้หลายคำตอบ</p>
+                                        <div className="mb-3.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                            <CheckCircle size={13} className="text-blue-500 shrink-0" />
+                                            <span>ข้อสอบประเภทเลือกได้หลายคำตอบ</span>
+                                        </div>
                                     )}
-                                    <div className="space-y-2">
+                                    <div className="space-y-2.5">
                                         {q.choices.map((choice, choiceIndex) => {
                                             const isSelected = q.type === 'checkbox'
                                                 ? String(answers[q.questionId] || '').split(',').includes(choice.value)
@@ -656,18 +775,20 @@ const TakeExam = () => {
                                                     type="button"
                                                     onClick={() => selectAnswer(q.questionId, choice.value, q.type)}
                                                     disabled={suspended}
-                                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 text-left transition-all text-sm ${isSelected
-                                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
-                                                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700'
-                                                        }`}
+                                                    className={`w-full flex items-center gap-3.5 px-4 sm:px-5 py-3.5 rounded-xl border transition-all text-left text-sm sm:text-base cursor-pointer ${
+                                                        isSelected
+                                                            ? 'border-indigo-600 bg-indigo-50/40 text-gray-900 ring-1 ring-indigo-600 font-medium shadow-2xs'
+                                                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/60 text-gray-700 bg-white'
+                                                    }`}
                                                 >
-                                                    <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center flex-shrink-0 font-bold text-xs ${isSelected
-                                                        ? 'bg-indigo-500 text-white'
-                                                        : 'bg-gray-200 text-gray-500'
-                                                        }`}>
-                                                        {q.type === 'checkbox' && isSelected ? <CheckCircle size={16} /> : String.fromCharCode(65 + choiceIndex)}
+                                                    <div className={`w-7 h-7 ${q.type === 'checkbox' ? 'rounded-md' : 'rounded-full'} flex items-center justify-center shrink-0 font-semibold text-xs transition-all ${
+                                                        isSelected
+                                                            ? 'bg-indigo-600 text-white'
+                                                            : 'border border-gray-300 text-gray-500 bg-gray-50'
+                                                    }`}>
+                                                        {q.type === 'checkbox' && isSelected ? <Check size={14} /> : String.fromCharCode(65 + choiceIndex)}
                                                     </div>
-                                                    <span>{choice.label}</span>
+                                                    <span className="flex-1 leading-relaxed">{choice.label}</span>
                                                 </button>
                                             );
                                         })}
@@ -679,46 +800,148 @@ const TakeExam = () => {
                 })}
             </div>
 
-            {/* Pagination Controls */}
-            <div className={`flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}>
+            {/* Unified Bottom Action Bar */}
+            <div className={`sticky bottom-0 bg-white/95 backdrop-blur-xs -mx-4 sm:-mx-6 px-4 sm:px-6 py-3.5 border-t border-gray-200 shadow-sm flex items-center justify-between gap-3 ${suspended ? 'opacity-50 pointer-events-none' : ''}`}>
                 <button
                     type="button"
                     onClick={() => goToPage(Math.max(currentPage - 1, 1))}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3.5 sm:px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition cursor-pointer disabled:cursor-not-allowed"
                 >
-                    ← หน้าก่อนหน้า
+                    ← ข้อก่อนหน้า
                 </button>
-                <span className="text-sm text-gray-500 font-medium">
-                    หน้า {currentPage} / {totalPages}
-                </span>
-                <button
-                    type="button"
-                    onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    หน้าถัดไป →
-                </button>
+
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
+                    <span className="font-semibold text-gray-800">ข้อ {currentPage} / {totalPages}</span>
+                    <span className="text-gray-300">•</span>
+                    <span>ตอบแล้ว {answeredCount}/{totalQuestions}</span>
+                    {flaggedCount > 0 && (
+                        <>
+                            <span className="text-gray-300 hidden sm:inline">•</span>
+                            <span className="text-amber-600 hidden sm:inline font-medium">ปักหมุด {flaggedCount}</span>
+                        </>
+                    )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                    {currentPage < totalPages ? (
+                        <button
+                            type="button"
+                            onClick={() => goToPage(currentPage + 1)}
+                            className="px-4 sm:px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition cursor-pointer"
+                        >
+                            ข้อถัดไป →
+                        </button>
+                    ) : null}
+
+                    <button
+                        type="button"
+                        onClick={() => handleSubmit(false)}
+                        disabled={submitting || suspended}
+                        className={`px-4 sm:px-5 py-2 text-sm font-medium rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-xs ${
+                            currentPage === totalPages
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                : 'text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200'
+                        }`}
+                    >
+                        <Send size={14} />
+                        <span>ส่งข้อสอบ</span>
+                    </button>
+                </div>
             </div>
 
-            {/* Submit Button */}
-            <div className={`sticky bottom-0 bg-gray-50 -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 border-t border-gray-200 ${suspended ? 'opacity-50 pointer-events-none' : ''}`}>
-                {answeredCount < totalQuestions && (
-                    <p className="text-sm text-orange-600 mb-2">⚠️ ยังตอบไม่ครบ ({answeredCount}/{totalQuestions} ข้อ) — กรุณาตอบให้ครบก่อนส่ง</p>
-                )}
-                <button
-                    onClick={() => handleSubmit(false)}
-                    disabled={submitting || suspended || answeredCount < totalQuestions}
-                    className={`w-full sm:w-auto px-8 py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition disabled:opacity-50 ${answeredCount < totalQuestions
-                        ? 'bg-gray-400 cursor-not-allowed text-white'
-                        : 'bg-green-600 hover:bg-green-700 text-white'
-                        }`}
-                >
-                    <Send size={18} />
-                    {submitting ? 'กำลังส่ง...' : `ส่งข้อสอบ (${answeredCount}/${totalQuestions} ข้อ)`}
-                </button>
-            </div>
+            {/* Submit Confirmation & Missing Questions Modal */}
+            {showSubmitModal && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-gray-200 animate-scale-up">
+                        <div className="p-6">
+                            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                                    <Send size={18} className="text-indigo-600" />
+                                    ยืนยันการส่งข้อสอบ
+                                </h3>
+                                <button
+                                    onClick={() => setShowSubmitModal(false)}
+                                    className="text-gray-400 hover:text-gray-600 p-1 rounded-lg transition cursor-pointer"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Status overview in a single clean row */}
+                            <div className="grid grid-cols-3 gap-2 my-4 bg-gray-50 p-3 rounded-lg border border-gray-100 text-center">
+                                <div>
+                                    <p className="text-xl font-bold text-gray-900">{answeredCount}</p>
+                                    <p className="text-xs text-gray-500">ตอบแล้ว</p>
+                                </div>
+                                <div>
+                                    <p className={`text-xl font-bold ${
+                                        totalQuestions - answeredCount > 0 ? 'text-amber-600' : 'text-gray-900'
+                                    }`}>
+                                        {totalQuestions - answeredCount}
+                                    </p>
+                                    <p className="text-xs text-gray-500">ยังไม่ตอบ</p>
+                                </div>
+                                <div>
+                                    <p className="text-xl font-bold text-gray-900">{flaggedCount}</p>
+                                    <p className="text-xs text-gray-500">ปักหมุด</p>
+                                </div>
+                            </div>
+
+                            {/* Conditional note */}
+                            {totalQuestions - answeredCount > 0 ? (
+                                <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-3.5 mb-5">
+                                    <h4 className="text-xs font-semibold text-amber-900 flex items-center gap-1.5 mb-1.5">
+                                        <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                                        ยังมีข้อที่ยังไม่ได้ตอบ {totalQuestions - answeredCount} ข้อ:
+                                    </h4>
+                                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                                        {unansweredQuestions.map(item => (
+                                            <button
+                                                key={item.questionId}
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowSubmitModal(false);
+                                                    goToPage(item.page);
+                                                }}
+                                                className="px-2.5 py-1 bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 rounded text-xs font-medium transition cursor-pointer"
+                                            >
+                                                ข้อ {item.index + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3.5 mb-5 flex items-center gap-2.5">
+                                    <CheckCircle size={20} className="text-emerald-600 shrink-0" />
+                                    <p className="text-xs text-emerald-800">
+                                        ตอบครบทุกข้อแล้ว ({totalQuestions} ข้อ) พร้อมส่งข้อสอบ
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Action buttons */}
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSubmitModal(false)}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition cursor-pointer"
+                                >
+                                    กลับไปตรวจทาน
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={doSubmit}
+                                    disabled={submitting}
+                                    className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition cursor-pointer"
+                                >
+                                    {submitting ? 'กำลังส่ง...' : 'ยืนยันส่งข้อสอบ'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
