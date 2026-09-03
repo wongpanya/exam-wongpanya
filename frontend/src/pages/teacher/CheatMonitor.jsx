@@ -197,7 +197,7 @@ const CheatMonitor = () => {
                 </div>
 
                 {/* Global Stats & Controls */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <button
                         onClick={() => fetchLogs(true)}
                         disabled={isRefreshing}
@@ -207,9 +207,26 @@ const CheatMonitor = () => {
                         <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
                         <span>รีเฟรช</span>
                     </button>
-                    <div className="px-3 py-1 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 font-medium text-xs sm:text-sm h-8 border border-red-100">
+                    <div className="px-3 py-1 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 font-medium text-xs sm:text-sm h-8 border border-red-100" title="จำนวนเหตุการณ์ทั้งหมด">
                         <AlertTriangle size={16} /> {data?.totalEvents || 0} ครั้ง
                     </div>
+                    {data?.maxCheatEvents !== undefined && (
+                        <div
+                            className={`px-3 py-1 rounded-lg flex items-center gap-1.5 font-medium text-xs sm:text-sm h-8 border ${
+                                data.maxCheatEvents > 0
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-gray-100 text-gray-600 border-gray-200'
+                            }`}
+                            title={data.maxCheatEvents > 0 ? `ระงับการสอบอัตโนมัติเมื่อทำผิดกฎครบ ${data.maxCheatEvents} ครั้ง` : 'ไม่ได้เปิดใช้งานระงับการสอบอัตโนมัติ'}
+                        >
+                            <Lock size={14} className={data.maxCheatEvents > 0 ? 'text-amber-600' : 'text-gray-400'} />
+                            <span>
+                                {data.maxCheatEvents > 0
+                                    ? `ตั้งระงับไว้: ${data.maxCheatEvents} ครั้ง`
+                                    : 'ตั้งระงับไว้: ปิดใช้งาน'}
+                            </span>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -235,6 +252,38 @@ const CheatMonitor = () => {
                 {/* Overview Tab */}
                 {activeTab === 'overview' && (
                     <div className="h-full overflow-y-auto p-1 space-y-6">
+                        {/* Auto-Suspend Rule Banner */}
+                        {data?.maxCheatEvents !== undefined && (
+                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                        data.maxCheatEvents > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+                                    }`}>
+                                        <Lock size={20} />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h4 className="font-semibold text-gray-900">
+                                                การระงับการสอบอัตโนมัติ (Auto-Suspend)
+                                            </h4>
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                                data.maxCheatEvents > 0
+                                                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                                    : 'bg-gray-100 text-gray-600 border border-gray-200'
+                                            }`}>
+                                                {data.maxCheatEvents > 0 ? `ระงับที่ ${data.maxCheatEvents} ครั้ง` : 'ปิดใช้งาน'}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-0.5">
+                                            {data.maxCheatEvents > 0
+                                                ? `เมื่อนักเรียนทำผิดกฎข้อสอบครบ ${data.maxCheatEvents} ครั้ง ระบบจะระงับการสอบทันที (หน้าจอของนักเรียนจะถูกล็อก)`
+                                                : 'ห้องสอบนี้ไม่ได้เปิดระบบระงับการสอบอัตโนมัติ (อาจารย์สามารถกดระงับรายบุคคลได้ด้วยตนเอง)'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-semibold mb-4">ประเภทเหตุการณ์</h3>
@@ -327,10 +376,15 @@ const CheatMonitor = () => {
                                                 <p className="text-xs text-gray-400">คะแนน</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className={`text-lg font-bold ${s.count > 5 ? 'text-red-600' : 'text-gray-700'}`}>
+                                                <p className={`text-lg font-bold ${s.count > 5 || (data?.maxCheatEvents > 0 && s.count >= data.maxCheatEvents) ? 'text-red-600' : 'text-gray-700'}`}>
                                                     {s.count}
+                                                    {data?.maxCheatEvents > 0 && (
+                                                        <span className="text-xs text-gray-400 font-normal"> / {data.maxCheatEvents}</span>
+                                                    )}
                                                 </p>
-                                                <p className="text-xs text-gray-400">เหตุการณ์ (รวม {s.totalCount})</p>
+                                                <p className="text-xs text-gray-400">
+                                                    {data?.maxCheatEvents > 0 ? `เหตุการณ์ (เกณฑ์ ${data.maxCheatEvents})` : `เหตุการณ์ (รวม ${s.totalCount})`}
+                                                </p>
                                             </div>
                                             <ChevronRight size={20} className="text-gray-300" />
                                         </div>
@@ -420,9 +474,14 @@ const CheatMonitor = () => {
                                 <div className="bg-gray-50 p-4 rounded-xl text-center">
                                     <p className="text-3xl font-bold text-gray-900">
                                         {studentLogs?.unresolvedCount ?? (studentLogs?.logs?.length || 0)}
+                                        {data?.maxCheatEvents > 0 && (
+                                            <span className="text-base text-gray-400 font-normal"> / {data.maxCheatEvents}</span>
+                                        )}
                                     </p>
                                     <p className="text-xs text-gray-500">
-                                        เหตุการณ์ (รวม {studentLogs?.logs?.length || 0})
+                                        {data?.maxCheatEvents > 0
+                                            ? `เหตุการณ์ (เกณฑ์ระงับ ${data.maxCheatEvents} ครั้ง)`
+                                            : `เหตุการณ์ (รวม ${studentLogs?.logs?.length || 0})`}
                                     </p>
                                 </div>
                                 <div className="bg-indigo-50 p-4 rounded-xl text-center border border-indigo-100">

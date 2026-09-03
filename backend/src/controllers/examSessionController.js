@@ -905,6 +905,8 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         totalEvents: logs.length,
         sessionStatus: session.status,
         session: session._id,
+        maxCheatEvents: session.maxCheatEvents !== undefined && session.maxCheatEvents !== null ? session.maxCheatEvents : 1,
+        cheatConfig: session.cheatConfig,
     });
 });
 
@@ -973,6 +975,8 @@ const getStudentCheatLogs = asyncHandler(async (req, res) => {
         submittedAt: attempt.submittedAt,
         logs,
         unresolvedCount,
+        maxCheatEvents: session.maxCheatEvents !== undefined && session.maxCheatEvents !== null ? session.maxCheatEvents : 1,
+        cheatConfig: session.cheatConfig,
     });
 });
 
