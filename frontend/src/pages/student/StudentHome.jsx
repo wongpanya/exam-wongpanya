@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QrCode, BookOpen, FolderOpen } from 'lucide-react';
 import api from '../../config/api';
+import DraggableStudentMascot from '../../components/mascot/DraggableStudentMascot';
 
 const StudentHome = () => {
     const navigate = useNavigate();
@@ -122,6 +123,9 @@ const StudentHome = () => {
                     </div>
                 )}
             </div>
+
+            {/* Draggable Corner Mascot Companion with Customize Modal */}
+            <DraggableStudentMascot />
         </div>
     );
 };

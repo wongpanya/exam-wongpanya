@@ -16,8 +16,10 @@ import {
     RefreshCw, 
     Bookmark, 
     Check, 
-    X 
+    X
 } from 'lucide-react';
+import PixelMascot from '../../components/mascot/PixelMascot';
+import useMascotBehavior from '../../hooks/useMascotBehavior';
 
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
 const DEBOUNCE_SAVE_MS = 2000;
@@ -402,6 +404,27 @@ const TakeExam = () => {
         };
     }, [sessionInfo, submitted, checkStatus]);
 
+    // Mascot & Timekeeper controls (Mascot acts as the exclusive exam timekeeper)
+    const currentQuestion = exam?.questions?.[currentPage - 1];
+    const currentQuestionId = currentQuestion?.questionId;
+    const isCurrentFlagged = currentQuestionId ? Boolean(flaggedQuestions[currentQuestionId]) : false;
+    const totalQuestionsCount = exam?.questions?.length || 0;
+    const totalPagesCount = Math.ceil(totalQuestionsCount / questionsPerPage);
+    const answeredTotalCount = Object.values(answers).filter(hasAnswer).length;
+
+    const mascotBehavior = useMascotBehavior({
+        timeLeft,
+        durationMin: exam?.durationMin,
+        currentPage,
+        currentQuestionId,
+        totalQuestions: totalQuestionsCount,
+        answeredCount: answeredTotalCount,
+        submitted,
+        isFlagged: isCurrentFlagged,
+        onToggleFlag: currentQuestionId ? () => toggleFlag(currentQuestionId) : undefined,
+        onNextQuestion: currentPage < totalPagesCount ? () => goToPage(currentPage + 1) : undefined,
+    });
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -486,13 +509,20 @@ const TakeExam = () => {
                         กลับหน้าหลัก
                     </button>
                 </div>
+
+                {/* Pixel Mascot Celebration on Result Screen */}
+                <PixelMascot
+                    timeLeft={null}
+                    behavior={mascotBehavior}
+                    hideTopTimer={false}
+                />
             </div>
         );
     }
 
-    const answeredCount = Object.values(answers).filter(hasAnswer).length;
-    const totalQuestions = exam?.questions?.length || 0;
-    const totalPages = Math.ceil(totalQuestions / questionsPerPage);
+    const answeredCount = answeredTotalCount;
+    const totalQuestions = totalQuestionsCount;
+    const totalPages = totalPagesCount;
     const currentQuestions = exam?.questions?.slice(
         (currentPage - 1) * questionsPerPage,
         currentPage * questionsPerPage
@@ -620,16 +650,7 @@ const TakeExam = () => {
                             </div>
                         )}
 
-                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-mono font-bold text-sm sm:text-base ${
-                            timeLeft !== null && timeLeft <= 60
-                                ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse'
-                                : timeLeft !== null && timeLeft <= 300
-                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                    : 'bg-gray-100 text-gray-800'
-                            }`}>
-                            <Clock size={16} />
-                            {timeLeft !== null ? formatTime(timeLeft) : '--:--'}
-                        </div>
+
                     </div>
                 </div>
             </div>
@@ -942,6 +963,12 @@ const TakeExam = () => {
                     </div>
                 </div>
             )}
+
+            {/* Pixel Mascot Exam Assistant & Exclusive Timekeeper */}
+            <PixelMascot
+                timeLeft={timeLeft}
+                behavior={mascotBehavior}
+            />
         </div>
     );
 };
