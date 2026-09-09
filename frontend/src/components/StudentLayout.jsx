@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, Suspense } from 'react';
 import { LogOut, QrCode } from 'lucide-react';
 
@@ -13,24 +13,49 @@ const ContentLoader = () => (
 
 const StudentLayout = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [user, setUser] = useState(null);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
+        const redirectPath = location.pathname + location.search + location.hash;
+
         if (!storedUser) {
-            navigate('/login');
+            if (location.pathname !== '/student') {
+                sessionStorage.setItem('redirectAfterLogin', redirectPath);
+            }
+            navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, { replace: true });
             return;
         }
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser.role !== 'student') {
-            navigate('/');
-            return;
+
+        try {
+            const parsedUser = JSON.parse(storedUser);
+            if (!parsedUser?.token) {
+                localStorage.removeItem('user');
+                if (location.pathname !== '/student') {
+                    sessionStorage.setItem('redirectAfterLogin', redirectPath);
+                }
+                navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, { replace: true });
+                return;
+            }
+
+            if (parsedUser.role !== 'student') {
+                navigate('/');
+                return;
+            }
+            setUser(parsedUser);
+        } catch {
+            localStorage.removeItem('user');
+            if (location.pathname !== '/student') {
+                sessionStorage.setItem('redirectAfterLogin', redirectPath);
+            }
+            navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, { replace: true });
         }
-        setUser(parsedUser);
-    }, [navigate]);
+    }, [navigate, location.pathname, location.search, location.hash]);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
+        sessionStorage.removeItem('redirectAfterLogin');
         navigate('/login');
     };
 

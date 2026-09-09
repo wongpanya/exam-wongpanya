@@ -5,3 +5,5 @@ frontend/.env.local
 frontend/dist/
 coverage/
 npm-debug.log*
+.agents/
+skills-lock.json

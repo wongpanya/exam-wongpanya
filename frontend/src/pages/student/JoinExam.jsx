@@ -84,6 +84,8 @@ const JoinExam = () => {
     }, [navigate]);
 
     const joinWithToken = useCallback(async (tokenData, rawToken) => {
+        if (processingRef.current) return;
+        processingRef.current = true;
         try {
             setStatus('joining');
             setMessage('กำลังเข้าห้องสอบ...');
@@ -121,7 +123,7 @@ const JoinExam = () => {
                 }, 1500);
             } catch (attErr) {
                 setStatus('error');
-                setMessage(attErr.response?.data?.message || 'ไม่สามารถเข้าห้องสอบหรือเช็คชื่อได้');
+                setMessage(err.response?.data?.message || attErr.response?.data?.message || 'ไม่สามารถเข้าห้องสอบหรือเช็คชื่อได้');
                 processingRef.current = false;
 
                 setTimeout(() => {
@@ -134,6 +136,8 @@ const JoinExam = () => {
     }, [navigate]);
 
     const joinWithShortCode = useCallback(async (shortCode) => {
+        if (processingRef.current) return;
+        processingRef.current = true;
         const cleaned = shortCode.trim().replace(/\s+/g, '');
         setStatus('joining');
         setMessage('กำลังดำเนินการ...');
@@ -209,6 +213,18 @@ const JoinExam = () => {
             setMessage('QR Code ยังไม่พร้อม กรุณาสแกนใหม่อีกครั้ง');
             processingRef.current = false;
             return;
+        }
+
+        if (cleaned.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(cleaned);
+                if (parsed?.examId) {
+                    await joinWithToken(parsed, cleaned);
+                    return;
+                }
+            } catch (e) {
+                // ignore
+            }
         }
 
         if (cleaned.includes('.')) {

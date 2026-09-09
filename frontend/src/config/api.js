@@ -31,7 +31,11 @@ api.interceptors.response.use(
             localStorage.removeItem('user');
             // Only redirect if not already on login/register page
             if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
-                window.location.href = '/login';
+                const currentPath = window.location.pathname + window.location.search + window.location.hash;
+                if (currentPath !== '/student' && currentPath !== '/teacher') {
+                    sessionStorage.setItem('redirectAfterLogin', currentPath);
+                }
+                window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
             }
         }
         return Promise.reject(error);

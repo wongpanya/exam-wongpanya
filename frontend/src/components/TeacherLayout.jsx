@@ -108,17 +108,22 @@ const TeacherLayout = () => {
     }, []);
 
     useEffect(() => {
-        if (!user) {
-            navigate('/login');
+        if (!user || !user.token) {
+            const redirectPath = location.pathname + location.search + location.hash;
+            if (location.pathname !== '/teacher') {
+                sessionStorage.setItem('redirectAfterLogin', redirectPath);
+            }
+            navigate(`/login?redirect=${encodeURIComponent(redirectPath)}`, { replace: true });
             return;
         }
         if (user.role !== 'teacher') {
             navigate('/');
         }
-    }, [navigate, user]);
+    }, [navigate, user, location.pathname, location.search, location.hash]);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
+        sessionStorage.removeItem('redirectAfterLogin');
         navigate('/login');
     };
 

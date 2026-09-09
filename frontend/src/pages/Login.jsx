@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import api from '../config/api';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 
 const Login = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [formData, setFormData] = useState({
         email: '',
         password: '',
@@ -16,6 +17,38 @@ const Login = () => {
     const [requiresStudentCode, setRequiresStudentCode] = useState(false);
     const [studentCode, setStudentCode] = useState('');
 
+    const getSafeRedirectUrl = (role) => {
+        const rawTarget = searchParams.get('redirect') || sessionStorage.getItem('redirectAfterLogin');
+        if (!rawTarget) return null;
+
+        let decodedTarget = rawTarget;
+        try {
+            decodedTarget = decodeURIComponent(rawTarget);
+        } catch {
+            // keep as-is if decode fails
+        }
+
+        // Must start with '/' and not external scheme or '//'
+        if (!decodedTarget.startsWith('/') || decodedTarget.startsWith('//')) {
+            return null;
+        }
+
+        // Avoid infinite redirect loop to auth pages
+        if (decodedTarget.startsWith('/login') || decodedTarget.startsWith('/register')) {
+            return null;
+        }
+
+        if (role === 'student' && decodedTarget.startsWith('/student')) {
+            return decodedTarget;
+        }
+
+        if (role === 'teacher' && decodedTarget.startsWith('/teacher')) {
+            return decodedTarget;
+        }
+
+        return null;
+    };
+
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
         if (!storedUser) return;
@@ -23,14 +56,18 @@ const Login = () => {
         try {
             const parsedUser = JSON.parse(storedUser);
             if (parsedUser?.token && parsedUser?.role === 'teacher') {
-                navigate('/teacher', { replace: true });
+                const target = getSafeRedirectUrl('teacher') || '/teacher';
+                sessionStorage.removeItem('redirectAfterLogin');
+                navigate(target, { replace: true });
             } else if (parsedUser?.token && parsedUser?.role === 'student') {
-                navigate('/student', { replace: true });
+                const target = getSafeRedirectUrl('student') || '/student';
+                sessionStorage.removeItem('redirectAfterLogin');
+                navigate(target, { replace: true });
             }
         } catch {
             localStorage.removeItem('user');
         }
-    }, [navigate]);
+    }, [navigate, searchParams]);
 
     const { email, password } = formData;
 
@@ -73,9 +110,13 @@ const Login = () => {
                 localStorage.setItem('user', JSON.stringify(response.data));
                 // Redirect based on role
                 if (response.data.role === 'teacher') {
-                    navigate('/teacher');
+                    const target = getSafeRedirectUrl('teacher') || '/teacher';
+                    sessionStorage.removeItem('redirectAfterLogin');
+                    navigate(target);
                 } else if (response.data.role === 'student') {
-                    navigate('/student');
+                    const target = getSafeRedirectUrl('student') || '/student';
+                    sessionStorage.removeItem('redirectAfterLogin');
+                    navigate(target);
                 } else {
                     navigate('/');
                 }
@@ -178,7 +219,10 @@ const Login = () => {
 
                     <div className="text-center text-sm">
                         <span className="text-gray-600">ยังไม่มีบัญชี? </span>
-                        <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+                        <Link
+                            to={searchParams.get('redirect') ? `/register?redirect=${encodeURIComponent(searchParams.get('redirect'))}` : '/register'}
+                            className="font-medium text-indigo-600 hover:text-indigo-500"
+                        >
                             สมัครสมาชิก
                         </Link>
                     </div>

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import api from '../config/api';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 
 const Register = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const redirectParam = searchParams.get('redirect');
     const [formData, setFormData] = useState({
         title: 'นาย',
         firstName: '',
@@ -86,7 +88,7 @@ const Register = () => {
 
             if (response.data) {
                 setSuccess('สมัครสมาชิกสำเร็จ! กำลังนำทางไปหน้าเข้าสู่ระบบ...');
-                setTimeout(() => navigate('/login'), 2000);
+                setTimeout(() => navigate(redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : '/login'), 2000);
             }
         } catch (err) {
             setError(err.response?.data?.message || 'การสมัครสมาชิก ล้มเหลว');
@@ -263,6 +265,16 @@ const Register = () => {
                         >
                             {loading ? 'กำลังลงทะเบียน...' : 'สมัครสมาชิก'}
                         </button>
+                    </div>
+
+                    <div className="text-center text-sm">
+                        <span className="text-gray-600">มีบัญชีอยู่แล้ว? </span>
+                        <Link
+                            to={redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : '/login'}
+                            className="font-medium text-indigo-600 hover:text-indigo-500"
+                        >
+                            เข้าสู่ระบบ
+                        </Link>
                     </div>
                 </form>
             </div>
