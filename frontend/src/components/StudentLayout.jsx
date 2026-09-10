@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, Suspense } from 'react';
-import { LogOut, QrCode } from 'lucide-react';
+import { LogOut, GraduationCap } from 'lucide-react';
 
 const ContentLoader = () => (
     <div className="py-20 flex items-center justify-center">
@@ -66,8 +66,8 @@ const StudentLayout = () => {
             {/* Header */}
             <header className="bg-gray-900 text-white shadow-lg">
                 <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <QrCode size={22} className="text-indigo-400" />
+                    <div className="flex items-center gap-2.5">
+                        <img src="/logo.png" alt="Logo" className="h-9 w-auto object-contain" />
                         <h1 className="text-lg font-bold text-indigo-400">Exam</h1>
                     </div>
                     <div className="flex items-center gap-4">

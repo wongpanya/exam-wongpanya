@@ -173,7 +173,10 @@ const TeacherLayout = () => {
         <div className="flex min-h-screen bg-gray-50">
             {/* Mobile Header (Only visible on screens smaller than md) */}
             <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-gray-900 text-white h-14 flex items-center justify-between px-4 shadow-lg">
-                <h1 className="text-lg font-bold text-indigo-400">Exam</h1>
+                <div className="flex items-center gap-2.5">
+                    <img src="/logo.png" alt="Logo" className="h-9 w-auto object-contain" />
+                    <h1 className="text-lg font-bold text-indigo-400">Exam</h1>
+                </div>
                 <button
                     onClick={() => setSidebarOpen(!sidebarOpen)}
                     className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition cursor-pointer"
@@ -197,7 +200,8 @@ const TeacherLayout = () => {
                 }`}
             >
                 {/* Desktop Logo */}
-                <div className="hidden md:flex h-16 items-center justify-center px-4 border-b border-gray-700">
+                <div className="hidden md:flex h-16 items-center justify-center gap-2.5 px-4 border-b border-gray-700">
+                    <img src="/logo.png" alt="Logo" className="h-10 w-auto object-contain" />
                     <h1 className="text-xl font-bold text-indigo-400">
                         Exam
                     </h1>

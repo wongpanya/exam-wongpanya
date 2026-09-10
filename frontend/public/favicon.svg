@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="brandGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+  </defs>
+  <!-- Rounded Squircle Background -->
+  <rect width="64" height="64" rx="16" fill="url(#brandGrad)" />
+  
+  <!-- Graduation Cap Icon -->
+  <path d="M32 16L12 26L32 36L52 26L32 16Z" fill="#FFFFFF" />
+  <path d="M19 32.5V41C19 45 24.8 48 32 48C39.2 48 45 45 45 41V32.5L32 39L19 32.5Z" fill="#FFFFFF" fill-opacity="0.9" />
+  <path d="M48 28.5V43C48 44.1 47.1 45 46 45C44.9 45 44 44.1 44 43V28.5" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
+  <circle cx="44" cy="45" r="2" fill="#FCD34D" />
+</svg>
