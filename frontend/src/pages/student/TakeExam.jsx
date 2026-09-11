@@ -335,6 +335,10 @@ const TakeExam = () => {
     const doSubmit = useCallback(async () => {
         if (submitting || submitted || suspended) return;
 
+        // Immediately cancel any pending debounced or interval auto-saves
+        if (debounceSaveRef.current) clearTimeout(debounceSaveRef.current);
+        if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current);
+
         if (!isOnline) {
             await showAlert({ 
                 title: 'ไม่มีการเชื่อมต่อ', 

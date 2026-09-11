@@ -112,10 +112,14 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
     if (inProgressAttempts.length > 0) {
         const examData = await Exam.findById(session.exam);
         for (const attempt of inProgressAttempts) {
-            attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
-            attempt.status = 'submitted';
-            attempt.submittedAt = Date.now();
-            await attempt.save();
+            const finalAnswers = normalizeFinalAnswers(examData, attempt.answers);
+            await ExamAttempt.findByIdAndUpdate(attempt._id, {
+                $set: {
+                    answers: finalAnswers,
+                    status: 'submitted',
+                    submittedAt: Date.now(),
+                }
+            });
             await prepareAttemptGrading(attempt._id, {
                 requestedBy: requestedBy || session.createdBy,
                 trigger: 'automatic',
@@ -664,14 +668,18 @@ const autoSave = asyncHandler(async (req, res) => {
         throw new Error('Exam time limit exceeded');
     }
 
-    // Update answers
-    // Merge logic: update existing answer or push new
-    // We can just replace the array if we send full state, or merge carefully
-    // Assuming frontend sends full state of answered questions
-    attempt.answers = answers;
-    await attempt.save();
+    // Atomically update answers only if still in-progress
+    const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+        { _id: attempt._id, status: 'in-progress' },
+        { $set: { answers } },
+        { new: true }
+    );
 
-    res.json({ message: 'Saved', saved: true, status: attempt.status });
+    if (!updatedAttempt) {
+        return res.json({ message: 'Exam status changed or already submitted', saved: false, status: attempt.status });
+    }
+
+    res.json({ message: 'Saved', saved: true, status: updatedAttempt.status });
 });
 
 // @desc    Submit exam
@@ -718,17 +726,32 @@ const submitExam = asyncHandler(async (req, res) => {
     }
 
     // Save one canonical entry per question, including an empty essay answer.
-    attempt.answers = normalizeFinalAnswers(examData, answers);
-    attempt.status = 'submitted';
-    attempt.submittedAt = Date.now();
-    await attempt.save();
+    const finalAnswers = normalizeFinalAnswers(examData, answers);
+
+    // Atomically transition from in-progress to submitted
+    const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+        { _id: attempt._id, status: { $ne: 'submitted' } },
+        {
+            $set: {
+                answers: finalAnswers,
+                status: 'submitted',
+                submittedAt: Date.now(),
+            }
+        },
+        { new: true }
+    );
+
+    if (!updatedAttempt) {
+        res.status(400);
+        throw new Error('Already submitted');
+    }
 
     // This only persists pending work and exact scores; provider calls happen in the worker.
-    await prepareAttemptGrading(attempt._id, {
+    await prepareAttemptGrading(updatedAttempt._id, {
         requestedBy: req.user._id,
         trigger: 'automatic',
     });
-    const gradedAttempt = await ExamAttempt.findById(attempt._id);
+    const gradedAttempt = await ExamAttempt.findById(updatedAttempt._id);
 
     // Update session stats
     await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: 1 } });
