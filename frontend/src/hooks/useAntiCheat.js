@@ -1,6 +1,48 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import api from '../config/api';
 
+export const isMobileOrTabletDevice = () => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    const isTouchScreen = navigator.maxTouchPoints > 1;
+    const isSmallScreen = window.innerWidth <= 1024;
+    return isMobileUA || (isTouchScreen && isSmallScreen);
+};
+
+export const enterFullscreen = async () => {
+    try {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            await elem.requestFullscreen();
+            return true;
+        } else if (elem.webkitRequestFullscreen) {
+            await elem.webkitRequestFullscreen();
+            return true;
+        } else if (elem.msRequestFullscreen) {
+            await elem.msRequestFullscreen();
+            return true;
+        }
+    } catch (err) {
+        console.warn('Fullscreen request failed:', err);
+    }
+    return false;
+};
+
+export const exitFullscreen = async () => {
+    try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+            if (document.exitFullscreen) {
+                await document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                await document.webkitExitFullscreen();
+            }
+        }
+    } catch (err) {
+        console.warn('Exit fullscreen failed:', err);
+    }
+};
+
 const FORBIDDEN_KEYS = [
     { key: 'F12', ctrl: false, shift: false },
     { key: 'p', ctrl: true, shift: false },
@@ -17,29 +59,44 @@ const FORBIDDEN_KEYS = [
 // Event types that count as violations (should trigger immediate flush)
 const VIOLATION_TYPES = new Set([
     'tab_switch', 'blur', 'copy', 'cut', 'paste',
-    'right_click', 'print_screen', 'devtools', 'forbidden_key'
+    'right_click', 'print_screen', 'devtools', 'forbidden_key',
+    'fullscreen_exit', 'split_screen'
 ]);
 
 const useAntiCheat = (examId, enabled = true, onSuspend) => {
     const [cheatCount, setCheatCount] = useState(0);
     const [isTabHidden, setIsTabHidden] = useState(false);
     const [warnings, setWarnings] = useState([]);
+    const [isMobile] = useState(() => isMobileOrTabletDevice());
+    const [isFullscreen, setIsFullscreen] = useState(() => {
+        if (typeof document === 'undefined') return false;
+        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    });
+
     const logQueueRef = useRef([]);
     const flushTimerRef = useRef(null);
     const urgentFlushTimerRef = useRef(null);
     const onSuspendRef = useRef(onSuspend);
 
+    // Keep isFullscreen in sync with document state
+    useEffect(() => {
+        const updateFullscreen = () => {
+            setIsFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement));
+        };
+
+        document.addEventListener('fullscreenchange', updateFullscreen);
+        document.addEventListener('webkitfullscreenchange', updateFullscreen);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', updateFullscreen);
+            document.removeEventListener('webkitfullscreenchange', updateFullscreen);
+        };
+    }, []);
+
     // Keep onSuspend ref current to avoid stale closures
     useEffect(() => {
         onSuspendRef.current = onSuspend;
     }, [onSuspend]);
-
-    const getConfig = () => {
-        const user = JSON.parse(localStorage.getItem('user'));
-        return {
-            headers: { Authorization: `Bearer ${user.token}` },
-        };
-    };
 
     const addWarning = (eventType, detail) => {
         const warning = {
@@ -73,7 +130,7 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
             if (data.suspendStatus === 'suspended' && onSuspendRef.current) {
                 onSuspendRef.current();
             }
-        } catch (err) {
+        } catch {
             // If network fails, put events back in queue
             logQueueRef.current = [...events, ...logQueueRef.current];
         }
@@ -84,8 +141,12 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         logQueueRef.current.push({ eventType, detail });
         addWarning(eventType, detail);
 
-        // If this is a violation event, flush quickly (1s debounce to batch rapid events)
-        if (VIOLATION_TYPES.has(eventType)) {
+        // If this is an immediate suspension event, flush immediately without delay
+        if (eventType === 'fullscreen_exit' || eventType === 'split_screen') {
+            if (urgentFlushTimerRef.current) clearTimeout(urgentFlushTimerRef.current);
+            flushLogs();
+        } else if (VIOLATION_TYPES.has(eventType)) {
+            // Otherwise if violation event, flush quickly (1s debounce to batch rapid events)
             if (urgentFlushTimerRef.current) clearTimeout(urgentFlushTimerRef.current);
             urgentFlushTimerRef.current = setTimeout(() => {
                 flushLogs();
@@ -99,20 +160,58 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         // Regular flush every 10 seconds for non-urgent events
         flushTimerRef.current = setInterval(flushLogs, 10000);
 
-        // --- Visibility Change (Tab Switch) ---
+        // --- Visibility Change (Tab Switch / App Switch) ---
         const handleVisibilityChange = () => {
             if (document.hidden) {
                 setIsTabHidden(true);
-                logEvent('tab_switch', 'Tab hidden');
+                logEvent('tab_switch', isMobile ? 'App switched / hidden' : 'Tab hidden');
             } else {
                 setIsTabHidden(false);
-                logEvent('focus', 'Tab visible again');
+                logEvent('focus', isMobile ? 'App resumed' : 'Tab visible again');
             }
         };
 
-        // --- Window Blur/Focus ---
+        // --- Window Blur ---
         const handleBlur = () => {
             logEvent('blur', 'Window lost focus');
+        };
+
+        // --- Fullscreen Violation (Desktop Only) ---
+        const handleFullscreenViolation = () => {
+            const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+            if (!isMobile && !isFS) {
+                logEvent('fullscreen_exit', 'Exited fullscreen mode');
+                if (onSuspendRef.current) {
+                    onSuspendRef.current();
+                }
+            }
+        };
+
+        // --- Mobile Split Screen Detection ---
+        let splitScreenDebounceTimer = null;
+        const checkMobileSplitScreen = () => {
+            if (!isMobile) return;
+            const isLandscape = window.innerWidth > window.innerHeight;
+            const sWidth = window.screen.width || 0;
+            const sHeight = window.screen.height || 0;
+            const sAvailWidth = window.screen.availWidth || 0;
+            let expectedWidth = sAvailWidth || sWidth;
+            if (sWidth && sHeight) {
+                expectedWidth = isLandscape ? Math.max(sWidth, sHeight) : Math.min(sWidth, sHeight);
+            }
+            if (expectedWidth > 0 && window.innerWidth < expectedWidth * 0.6) {
+                logEvent('split_screen', `Split screen detected: ${window.innerWidth}px (screen: ${expectedWidth}px)`);
+                if (onSuspendRef.current) {
+                    onSuspendRef.current();
+                }
+            }
+        };
+
+        const handleResize = () => {
+            if (isMobile) {
+                if (splitScreenDebounceTimer) clearTimeout(splitScreenDebounceTimer);
+                splitScreenDebounceTimer = setTimeout(checkMobileSplitScreen, 400);
+            }
         };
 
         // --- Copy/Cut/Paste ---
@@ -168,6 +267,15 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         document.addEventListener('contextmenu', handleContextMenu);
         document.addEventListener('keydown', handleKeyDown, true);
 
+        if (!isMobile) {
+            document.addEventListener('fullscreenchange', handleFullscreenViolation);
+            document.addEventListener('webkitfullscreenchange', handleFullscreenViolation);
+        } else {
+            window.addEventListener('resize', handleResize);
+            window.addEventListener('orientationchange', handleResize);
+            splitScreenDebounceTimer = setTimeout(checkMobileSplitScreen, 1200);
+        }
+
         return () => {
             // Cleanup
             document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -178,17 +286,28 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
             document.removeEventListener('contextmenu', handleContextMenu);
             document.removeEventListener('keydown', handleKeyDown, true);
 
+            if (!isMobile) {
+                document.removeEventListener('fullscreenchange', handleFullscreenViolation);
+                document.removeEventListener('webkitfullscreenchange', handleFullscreenViolation);
+            } else {
+                window.removeEventListener('resize', handleResize);
+                window.removeEventListener('orientationchange', handleResize);
+                if (splitScreenDebounceTimer) clearTimeout(splitScreenDebounceTimer);
+            }
+
             if (flushTimerRef.current) clearInterval(flushTimerRef.current);
             if (urgentFlushTimerRef.current) clearTimeout(urgentFlushTimerRef.current);
 
             // Flush remaining logs
             flushLogs();
         };
-    }, [enabled, examId, logEvent, flushLogs]);
+    }, [enabled, examId, isMobile, logEvent, flushLogs]);
 
     return {
         cheatCount,
         isTabHidden,
+        isFullscreen,
+        isMobile,
         warnings,
         resetCheatStatus,
     };

@@ -166,8 +166,32 @@ const ExamSession = () => {
             }));
         };
 
+        const handleStudentSuspended = (data) => {
+            setStudents(prev => prev.map(s => {
+                if (s.student?._id === data.studentId || s.student === data.studentId) {
+                    return {
+                        ...s,
+                        status: 'suspended',
+                        suspendCount: data.suspendCount !== undefined ? data.suspendCount : (s.suspendCount || 0) + 1,
+                    };
+                }
+                return s;
+            }));
+        };
+
+        const handleStudentUnsuspended = (data) => {
+            setStudents(prev => prev.map(s => {
+                if (s.student?._id === data.studentId || s.student === data.studentId) {
+                    return { ...s, status: 'in-progress' };
+                }
+                return s;
+            }));
+        };
+
         socket.on('student-joined', handleStudentJoined);
         socket.on('student-submitted', handleStudentSubmitted);
+        socket.on('student-suspended', handleStudentSuspended);
+        socket.on('student-unsuspended', handleStudentUnsuspended);
         const handleSessionEnded = () => {
             setSession(prev => ({ ...prev, status: 'ended' }));
             setQrData('');
@@ -178,6 +202,8 @@ const ExamSession = () => {
         return () => {
             socket.off('student-joined', handleStudentJoined);
             socket.off('student-submitted', handleStudentSubmitted);
+            socket.off('student-suspended', handleStudentSuspended);
+            socket.off('student-unsuspended', handleStudentUnsuspended);
             socket.off('session-ended', handleSessionEnded);
             socket.emit('leave-session', session._id);
         };
@@ -585,6 +611,8 @@ const ExamSession = () => {
                                     key={s._id}
                                     className={`flex items-center justify-between p-3 rounded-lg ${s.status === 'submitted'
                                         ? 'bg-green-50 border border-green-200'
+                                        : s.status === 'suspended'
+                                        ? 'bg-red-50 border border-red-200'
                                         : 'bg-gray-50 border border-gray-200'
                                         }`}
                                 >
@@ -599,9 +627,13 @@ const ExamSession = () => {
                                             <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                                                 ส่งแล้ว ({s.score}/{s.totalPoints})
                                             </span>
+                                        ) : s.status === 'suspended' ? (
+                                            <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-bold">
+                                                ถูกระงับสอบ{s.suspendCount > 0 ? ` (ครั้งที่ ${s.suspendCount})` : ''}
+                                            </span>
                                         ) : (
                                             <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full">
-                                                กำลังสอบ
+                                                กำลังสอบ{s.suspendCount > 0 ? ` (เคยระงับ ${s.suspendCount} ครั้ง)` : ''}
                                             </span>
                                         )}
                                     </div>

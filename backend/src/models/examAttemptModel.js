@@ -77,6 +77,10 @@ const examAttemptSchema = new mongoose.Schema({
         enum: ['in-progress', 'submitted', 'suspended'],
         default: 'in-progress',
     },
+    suspendCount: {
+        type: Number,
+        default: 0,
+    },
     startedAt: {
         type: Date,
         default: Date.now,

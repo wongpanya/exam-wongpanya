@@ -37,13 +37,13 @@ const submitSchema = z.object({
 });
 
 const cheatLogSchema = z.object({
-    eventType: z.enum(['tab_switch', 'blur', 'focus', 'copy', 'cut', 'paste', 'right_click', 'print_screen', 'devtools', 'forbidden_key']),
+    eventType: z.enum(['tab_switch', 'blur', 'focus', 'copy', 'cut', 'paste', 'right_click', 'print_screen', 'devtools', 'forbidden_key', 'fullscreen_exit', 'split_screen']),
     detail: z.string().default(''),
 });
 
 const cheatLogBatchSchema = z.object({
     events: z.array(z.object({
-        eventType: z.enum(['tab_switch', 'blur', 'focus', 'copy', 'cut', 'paste', 'right_click', 'print_screen', 'devtools', 'forbidden_key']),
+        eventType: z.enum(['tab_switch', 'blur', 'focus', 'copy', 'cut', 'paste', 'right_click', 'print_screen', 'devtools', 'forbidden_key', 'fullscreen_exit', 'split_screen']),
         detail: z.string().default(''),
     })).min(1).max(50),
 });

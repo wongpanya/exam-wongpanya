@@ -48,7 +48,12 @@ class ErrorBoundary extends Component {
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 max-w-md w-full text-center">
                         <AlertTriangle className="mx-auto text-amber-500 mb-4" size={48} />
                         <h1 className="text-xl font-bold text-gray-900 mb-2">เกิดข้อผิดพลาด</h1>
-                        <p className="text-gray-500 mb-6">ระบบพบปัญหาที่ไม่คาดคิด กรุณาลองใหม่อีกครั้ง</p>
+                        <p className="text-gray-500 mb-4">ระบบพบปัญหาที่ไม่คาดคิด กรุณาลองใหม่อีกครั้ง</p>
+                        {this.state.error && (
+                            <div className="mb-6 p-3 bg-red-50 border border-red-100 rounded-lg text-left text-xs text-red-700 font-mono overflow-auto max-h-32">
+                                {this.state.error?.message || String(this.state.error)}
+                            </div>
+                        )}
                         <button
                             onClick={() => window.location.reload()}
                             className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition flex items-center gap-2 mx-auto"

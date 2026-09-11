@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
@@ -20,6 +20,8 @@ const EVENT_CONFIG = {
     print_screen: { label: 'PrintScreen', color: '#dc2626', bg: '#fef2f2', icon: Keyboard },
     devtools: { label: 'DevTools', color: '#dc2626', bg: '#fef2f2', icon: Keyboard },
     forbidden_key: { label: 'ปุ่มต้องห้าม', color: '#dc2626', bg: '#fef2f2', icon: Keyboard },
+    fullscreen_exit: { label: 'ออกจากเต็มจอ', color: '#dc2626', bg: '#fef2f2', icon: Monitor },
+    split_screen: { label: 'แบ่งหน้าจอ', color: '#dc2626', bg: '#fef2f2', icon: Monitor },
 };
 
 const POLL_INTERVAL = 5000;
@@ -87,7 +89,12 @@ const CheatMonitor = () => {
         };
     }, [id, sessionId]);
 
-    // Socket.io for real-time cheat events
+    const selectedStudentRef = useRef(selectedStudent);
+    useEffect(() => {
+        selectedStudentRef.current = selectedStudent;
+    }, [selectedStudent]);
+
+    // Socket.io for real-time cheat events and suspension updates
     useEffect(() => {
         if (!data?.session) return;
 
@@ -96,14 +103,21 @@ const CheatMonitor = () => {
 
         socket.emit('join-session', data.session);
 
-        const handleCheatEvent = () => {
+        const handleRealtimeUpdate = () => {
             fetchLogs();
+            if (selectedStudentRef.current?._id) {
+                fetchStudentLogs(selectedStudentRef.current._id);
+            }
         };
 
-        socket.on('cheat-event', handleCheatEvent);
+        socket.on('cheat-event', handleRealtimeUpdate);
+        socket.on('student-suspended', handleRealtimeUpdate);
+        socket.on('student-unsuspended', handleRealtimeUpdate);
 
         return () => {
-            socket.off('cheat-event', handleCheatEvent);
+            socket.off('cheat-event', handleRealtimeUpdate);
+            socket.off('student-suspended', handleRealtimeUpdate);
+            socket.off('student-unsuspended', handleRealtimeUpdate);
             socket.emit('leave-session', data.session);
         };
     }, [data?.session]);
@@ -297,9 +311,16 @@ const CheatMonitor = () => {
                                                     <p className="text-xs text-gray-500">{s.studentInfo.email}</p>
                                                 </div>
                                             </div>
-                                            <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded">
-                                                {s.count}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                {s.suspendCount > 0 && (
+                                                    <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded">
+                                                        ระงับ {s.suspendCount} ครั้ง
+                                                    </span>
+                                                )}
+                                                <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded">
+                                                    {s.count}
+                                                </span>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -330,11 +351,16 @@ const CheatMonitor = () => {
                                                 <p className="font-medium text-gray-900">
                                                     {s.studentInfo.firstName} {s.studentInfo.lastName}
                                                 </p>
-                                                <div className="flex items-center gap-2 text-xs">
+                                                <div className="flex items-center gap-2 text-xs flex-wrap">
                                                     <span className="text-gray-500">{s.studentInfo.email}</span>
                                                     {isSuspended && (
                                                         <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded flex items-center gap-1 font-bold">
                                                             <Lock size={10} /> ระงับการสอบ
+                                                        </span>
+                                                    )}
+                                                    {s.suspendCount > 0 && (
+                                                        <span className={`px-2 py-0.5 rounded flex items-center gap-1 font-medium ${isSuspended ? 'bg-red-200/80 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                            <AlertTriangle size={10} /> เคยโดนระงับ {s.suspendCount} ครั้ง
                                                         </span>
                                                     )}
                                                 </div>
@@ -446,7 +472,7 @@ const CheatMonitor = () => {
 
                         <div className="flex-1 overflow-y-auto p-6">
                             {/* Stats */}
-                            <div className="grid grid-cols-3 gap-4 mb-6">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                                 <div className="bg-gray-50 p-4 rounded-xl text-center">
                                     <p className="text-3xl font-bold text-gray-900">
                                         {studentLogs?.unresolvedCount ?? (studentLogs?.logs?.length || 0)}
@@ -459,6 +485,13 @@ const CheatMonitor = () => {
                                             ? `เหตุการณ์ (เกณฑ์ระงับ ${data.maxCheatEvents} ครั้ง)`
                                             : `เหตุการณ์ (รวม ${studentLogs?.logs?.length || 0})`}
                                     </p>
+                                </div>
+                                <div className={`p-4 rounded-xl text-center border ${(studentLogs?.suspendCount || 0) > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}`}>
+                                    <p className={`text-3xl font-bold ${(studentLogs?.suspendCount || 0) > 0 ? 'text-amber-700' : 'text-gray-700'}`}>
+                                        {studentLogs?.suspendCount || 0}
+                                        <span className="text-base text-gray-400 font-normal"> ครั้ง</span>
+                                    </p>
+                                    <p className="text-xs text-gray-500">เคยโดนระงับสอบ</p>
                                 </div>
                                 <div className="bg-indigo-50 p-4 rounded-xl text-center border border-indigo-100">
                                     <p className="text-3xl font-bold text-indigo-600">

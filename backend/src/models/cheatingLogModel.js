@@ -29,6 +29,8 @@ const cheatingLogSchema = new mongoose.Schema({
             'print_screen',
             'devtools',
             'forbidden_key',
+            'fullscreen_exit',
+            'split_screen',
         ],
         required: true,
     },

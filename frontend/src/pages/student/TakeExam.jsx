@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
-import useAntiCheat from '../../hooks/useAntiCheat';
+import useAntiCheat, { enterFullscreen, exitFullscreen, isMobileOrTabletDevice } from '../../hooks/useAntiCheat';
 import { 
     Clock, 
     Send, 
@@ -16,7 +16,8 @@ import {
     RefreshCw, 
     Bookmark, 
     Check, 
-    X 
+    X,
+    Maximize2
 } from 'lucide-react';
 
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
@@ -28,7 +29,7 @@ const hasAnswer = value => typeof value === 'string' && value.trim().length > 0;
 const TakeExam = () => {
     const { examId } = useParams();
     const navigate = useNavigate();
-    const { showAlert, showConfirm } = useDialog();
+    const { showAlert } = useDialog();
     const [exam, setExam] = useState(null);
     const [sessionInfo, setSessionInfo] = useState(null);
     const [answers, setAnswers] = useState({});
@@ -69,8 +70,34 @@ const TakeExam = () => {
         }, 30);
     }, []);
 
+    const [isMobile] = useState(() => isMobileOrTabletDevice());
+    const [hasEnteredFullscreen, setHasEnteredFullscreen] = useState(false);
+    const lastViolationTimeRef = useRef(0);
+
+    const handleSuspend = useCallback(() => {
+        lastViolationTimeRef.current = Date.now();
+        setSuspended(true);
+    }, []);
+
     // Anti-cheat hook
-    const { cheatCount, isTabHidden, warnings, resetCheatStatus } = useAntiCheat(examId, !submitted && !suspended, () => setSuspended(true));
+    const { cheatCount, isTabHidden, isFullscreen, warnings, resetCheatStatus } = useAntiCheat(
+        examId, 
+        !submitted && !suspended && (isMobile || hasEnteredFullscreen), 
+        handleSuspend
+    );
+
+    const handleEnterFullscreen = async () => {
+        const success = await enterFullscreen();
+        if (success) {
+            setHasEnteredFullscreen(true);
+        } else {
+            await showAlert({
+                title: 'ไม่สามารถเข้าสู่โหมดเต็มจอได้',
+                message: 'กรุณาอนุญาตให้เบราว์เซอร์เข้าสู่โหมดเต็มจอ หรือตรวจสอบการตั้งค่าเบราว์เซอร์ของคุณ',
+                variant: 'warning',
+            });
+        }
+    };
 
     // localStorage key for backup
     const storageKey = `exam_answers_${examId}`;
@@ -342,12 +369,15 @@ const TakeExam = () => {
             localStorage.removeItem(`exam_flags_${examId}`);
             if (timerRef.current) clearInterval(timerRef.current);
             if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current);
+            if (!isMobile) {
+                exitFullscreen();
+            }
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to submit exam');
         } finally {
             setSubmitting(false);
         }
-    }, [examId, isOnline, storageKey, showAlert, submitting, submitted, suspended]);
+    }, [examId, isOnline, isMobile, storageKey, showAlert, submitting, submitted, suspended]);
 
     const handleSubmit = useCallback((force = false) => {
         if (submitting || submitted || suspended) return;
@@ -370,24 +400,37 @@ const TakeExam = () => {
                 if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current);
                 if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
                 window.location.reload();
-                return;
+                return data.status;
             }
 
-            if (data.status === 'suspended') setSuspended(true);
-            else if (data.status === 'in-progress' || data.status === 'in_progress') {
+            if (data.status === 'suspended') {
+                setSuspended(true);
+            } else if (data.status === 'in-progress' || data.status === 'in_progress') {
+                // If an immediate violation was just recorded within 4s, ignore stale in-flight response
+                if (Date.now() - lastViolationTimeRef.current < 4000) {
+                    return data.status;
+                }
+
                 if (suspended) {
                     resetCheatStatus();
                     setSuspended(false);
                 }
             }
+            return data.status;
         } catch {
             // Silently ignore — next poll will retry
+            return null;
         }
     }, [examId, suspended, resetCheatStatus]);
 
     const handleManualStatusCheck = async () => {
         setCheckingStatus(true);
-        await checkStatus();
+        const currentStatus = await checkStatus();
+        if (currentStatus === 'in-progress' || currentStatus === 'in_progress') {
+            if (!isMobile && !document.fullscreenElement) {
+                await enterFullscreen();
+            }
+        }
         setCheckingStatus(false);
     };
 
@@ -395,12 +438,14 @@ const TakeExam = () => {
     useEffect(() => {
         if (!sessionInfo || submitted) return;
 
-        statusCheckTimerRef.current = setInterval(checkStatus, STATUS_CHECK_INTERVAL);
+        // Poll faster (every 3s) when suspended so student sees teacher unlock promptly
+        const interval = suspended ? 3000 : STATUS_CHECK_INTERVAL;
+        statusCheckTimerRef.current = setInterval(checkStatus, interval);
 
         return () => {
             if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
         };
-    }, [sessionInfo, submitted, checkStatus]);
+    }, [sessionInfo, submitted, suspended, checkStatus]);
 
     if (loading) {
         return (
@@ -527,7 +572,7 @@ const TakeExam = () => {
                                 if (warnings.length === 0) return 'ไม่ทราบ';
                                 const lastWarning = warnings[warnings.length - 1];
                                 const mapper = {
-                                    'tab_switch': 'สลับแท็บ/ออกจากหน้าต่างสอบ',
+                                    'tab_switch': isMobile ? 'สลับไปยังแอปอื่น / ออกจากหน้าจอสอบ' : 'สลับแท็บ / ออกจากหน้าต่างสอบ',
                                     'blur': 'คลิกออกนอกหน้าต่างสอบ',
                                     'copy': 'คัดลอกข้อความ',
                                     'cut': 'ตัดข้อความ',
@@ -536,6 +581,8 @@ const TakeExam = () => {
                                     'print_screen': 'แคปหน้าจอ (Print Screen)',
                                     'devtools': 'เปิดหน้าต่างนักพัฒนา (DevTools)',
                                     'forbidden_key': 'กดคีย์ต้องห้าม',
+                                    'fullscreen_exit': 'ออกจากโหมดเต็มจอ (Fullscreen)',
+                                    'split_screen': 'ตรวจพบการแบ่งหน้าจอ (Split Screen)',
                                 };
                                 return mapper[lastWarning.eventType] || lastWarning.detail || lastWarning.eventType || 'ไม่ทราบ';
                             })()}
@@ -551,6 +598,43 @@ const TakeExam = () => {
                         >
                             <RefreshCw size={18} className={checkingStatus ? 'animate-spin' : ''} />
                             {checkingStatus ? 'กำลังตรวจสอบ...' : 'ลองใหม่'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Fullscreen Entry Gate for Desktop/Notebook */}
+            {!isMobile && !isFullscreen && !submitted && !suspended && !loading && exam && (
+                <div className="fixed inset-0 z-50 bg-gray-900/95 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md animate-fade-in">
+                    <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full animate-scale-up border border-gray-100">
+                        <div className="w-16 h-16 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-4">
+                            <Maximize2 size={32} />
+                        </div>
+                        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                            {hasEnteredFullscreen ? 'อาจารย์ปลดล็อกแล้ว กรุณากลับเข้าสู่โหมดเต็มจอ' : 'เข้าสู่โหมดเต็มจอเพื่อเริ่มสอบ'}
+                        </h2>
+                        <p className="text-gray-600 text-sm leading-relaxed mb-6">
+                            {hasEnteredFullscreen ? (
+                                <>
+                                    อาจารย์ได้ทำการปลดระงับการสอบของคุณแล้ว<br />
+                                    กรุณากดปุ่มด้านล่างเพื่อ<strong>กลับเข้าสู่โหมดเต็มจอ</strong>และทำข้อสอบต่อ<br />
+                                    <span className="text-red-500 font-medium">* หากออกจากโหมดเต็มจออีก การสอบจะถูกระงับทันที</span>
+                                </>
+                            ) : (
+                                <>
+                                    ระบบกำหนดให้ทำข้อสอบบนคอมพิวเตอร์ใน<strong>โหมดเต็มจอ (Fullscreen) 100%</strong> เท่านั้น<br />
+                                    เพื่อป้องกันการแบ่งหน้าจอและเปิดแถบข้าง<br />
+                                    <span className="text-red-500 font-medium">* หากออกจากโหมดเต็มจอ หรือกดย่อหน้าต่าง การสอบจะถูกระงับทันที</span>
+                                </>
+                            )}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={handleEnterFullscreen}
+                            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-200 transition flex items-center justify-center gap-2 text-base cursor-pointer"
+                        >
+                            <Maximize2 size={20} />
+                            {hasEnteredFullscreen ? 'กลับเข้าสู่โหมดเต็มจอเพื่อทำข้อสอบต่อ' : 'เข้าสู่โหมดเต็มจอและเริ่มทำข้อสอบ'}
                         </button>
                     </div>
                 </div>

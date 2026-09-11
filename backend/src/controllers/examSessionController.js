@@ -792,30 +792,50 @@ const logCheatEvent = asyncHandler(async (req, res) => {
         'right_click': 'rightClick',
         'print_screen': 'printScreen',
         'devtools': 'devTools',
-        'forbidden_key': 'forbiddenKeys'
+        'forbidden_key': 'forbiddenKeys',
+        'fullscreen_exit': 'windowBlur',
+        'split_screen': 'windowBlur',
     };
 
-    const configKey = configKeyMap[eventType];
+    const isImmediateSuspend = eventType === 'fullscreen_exit' || eventType === 'split_screen';
+    let shouldSuspend = isImmediateSuspend;
 
-    // Only count as violation if the cheat configuration is enabled in session
-    if (isCheatTypeEnabled(session, configKey)) {
-        // Use in-memory counter instead of DB query
-        const currentViolationCount = await cheatTracker.increment(
-            session._id.toString(),
-            req.user._id.toString()
-        );
-
-        const limit = (session.maxCheatEvents === undefined || session.maxCheatEvents === null) ? 1 : session.maxCheatEvents;
-
-        if (limit > 0 && currentViolationCount >= limit) {
-            const updatedAttempt = await ExamAttempt.findOneAndUpdate(
-                { session: session._id, student: req.user._id },
-                { status: 'suspended' },
-                { new: true }
+    if (!isImmediateSuspend) {
+        const configKey = configKeyMap[eventType];
+        if (isCheatTypeEnabled(session, configKey)) {
+            const currentViolationCount = await cheatTracker.increment(
+                session._id.toString(),
+                req.user._id.toString()
             );
-            if (updatedAttempt) {
+
+            const limit = (session.maxCheatEvents === undefined || session.maxCheatEvents === null) ? 1 : session.maxCheatEvents;
+
+            if (limit > 0 && currentViolationCount >= limit) {
+                shouldSuspend = true;
+            }
+        }
+    }
+
+    if (shouldSuspend) {
+        const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+            { session: session._id, student: req.user._id, status: { $ne: 'submitted', $ne: 'suspended' } },
+            { status: 'suspended', $inc: { suspendCount: 1 } },
+            { new: true }
+        );
+        if (updatedAttempt) {
+            suspendStatus = 'suspended';
+            safeEmit(`session:${session._id}`, 'student-suspended', {
+                studentId: req.user._id.toString(),
+                suspendCount: updatedAttempt.suspendCount
+            });
+            safeEmit(`teacher:${session._id}`, 'student-suspended', {
+                studentId: req.user._id.toString(),
+                suspendCount: updatedAttempt.suspendCount
+            });
+        } else {
+            const existingAttempt = await ExamAttempt.findOne({ session: session._id, student: req.user._id });
+            if (existingAttempt && existingAttempt.status === 'suspended') {
                 suspendStatus = 'suspended';
-                safeEmit(`session:${session._id}`, 'student-suspended', { studentId: req.user._id.toString() });
             }
         }
     }
@@ -825,6 +845,7 @@ const logCheatEvent = asyncHandler(async (req, res) => {
         student: studentInfo,
         eventType,
         detail,
+        suspendStatus,
     });
 
     res.status(201).json({ ...log.toObject(), suspendStatus });
@@ -899,12 +920,13 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         student: { $in: studentIds }
     }).lean();
 
-    // Merge status and score into byStudent
+    // Merge status, score, and suspendCount into byStudent
     const byStudentWithStatus = byStudent.map(s => {
         const attempt = attempts.find(a => a.student.toString() === s._id.toString());
         return {
             ...s,
             status: attempt ? attempt.status : 'unknown',
+            suspendCount: attempt?.suspendCount || 0,
             attemptId: attempt ? attempt._id : null,
             score: attempt ? attempt.score : 0,
             totalPoints: attempt ? attempt.totalPoints : 0,
@@ -981,6 +1003,7 @@ const getStudentCheatLogs = asyncHandler(async (req, res) => {
         attemptId: attempt._id,
         student: attempt.student,
         status: attempt.status,
+        suspendCount: attempt.suspendCount || 0,
         score: attempt.score,
         totalPoints: attempt.totalPoints,
         answers: attempt.answers,
@@ -1027,8 +1050,9 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
         throw new Error('Attempt not found');
     }
 
-    if (suspend && attempt.status !== 'submitted') {
+    if (suspend && attempt.status !== 'submitted' && attempt.status !== 'suspended') {
         attempt.status = 'suspended';
+        attempt.suspendCount = (attempt.suspendCount || 0) + 1;
     } else if (!suspend && attempt.status === 'suspended') {
         attempt.status = 'in-progress';
 
@@ -1042,10 +1066,12 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
         );
         
         safeEmit(`session:${session._id}`, 'student-unsuspended', { studentId: req.params.studentId });
+        safeEmit(`teacher:${session._id}`, 'student-unsuspended', { studentId: req.params.studentId });
     }
 
     if (suspend && attempt.status === 'suspended') {
-        safeEmit(`session:${session._id}`, 'student-suspended', { studentId: req.params.studentId });
+        safeEmit(`session:${session._id}`, 'student-suspended', { studentId: req.params.studentId, suspendCount: attempt.suspendCount });
+        safeEmit(`teacher:${session._id}`, 'student-suspended', { studentId: req.params.studentId, suspendCount: attempt.suspendCount });
     }
 
     await attempt.save();
@@ -1250,15 +1276,21 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
         'right_click': 'rightClick',
         'print_screen': 'printScreen',
         'devtools': 'devTools',
-        'forbidden_key': 'forbiddenKeys'
+        'forbidden_key': 'forbiddenKeys',
+        'fullscreen_exit': 'windowBlur',
+        'split_screen': 'windowBlur'
     };
 
-    // Count only events that map to an ENABLED cheat type in configuration
+    // Check for immediate suspension events (PC Fullscreen exit or mobile split screen)
+    const hasImmediateSuspendEvent = batch.some(e => e.eventType === 'fullscreen_exit' || e.eventType === 'split_screen');
+
+    // Count events that are violations
     const violationEvents = batch.filter(e => {
         const configKey = configKeyMap[e.eventType];
         return isCheatTypeEnabled(session, configKey);
     });
     let suspendStatus = null;
+    let shouldSuspend = hasImmediateSuspendEvent;
 
     if (violationEvents.length > 0) {
         const currentCount = await cheatTracker.increment(
@@ -1270,16 +1302,44 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
         const limit = (session.maxCheatEvents === undefined || session.maxCheatEvents === null) ? 1 : session.maxCheatEvents;
 
         if (limit > 0 && currentCount >= limit) {
-            const updatedAttempt = await ExamAttempt.findOneAndUpdate(
-                { session: session._id, student: req.user._id },
-                { status: 'suspended' },
-                { new: true }
-            );
-            if (updatedAttempt) {
+            shouldSuspend = true;
+        }
+    }
+
+    if (shouldSuspend) {
+        const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+            { session: session._id, student: req.user._id, status: { $ne: 'submitted', $ne: 'suspended' } },
+            { status: 'suspended', $inc: { suspendCount: 1 } },
+            { new: true }
+        );
+        if (updatedAttempt) {
+            suspendStatus = 'suspended';
+            safeEmit(`session:${session._id}`, 'student-suspended', {
+                studentId: req.user._id.toString(),
+                suspendCount: updatedAttempt.suspendCount
+            });
+            safeEmit(`teacher:${session._id}`, 'student-suspended', {
+                studentId: req.user._id.toString(),
+                suspendCount: updatedAttempt.suspendCount
+            });
+        } else {
+            const existingAttempt = await ExamAttempt.findOne({ session: session._id, student: req.user._id });
+            if (existingAttempt && existingAttempt.status === 'suspended') {
                 suspendStatus = 'suspended';
             }
         }
     }
+
+    // Always notify teacher in real-time
+    const studentInfo = await User.findById(req.user._id).select('firstName lastName email');
+    const primaryEvent = batch.find(e => e.eventType === 'fullscreen_exit' || e.eventType === 'split_screen') || batch[batch.length - 1];
+
+    safeEmit(`teacher:${session._id}`, 'cheat-event', {
+        student: studentInfo,
+        eventType: primaryEvent.eventType,
+        detail: primaryEvent.detail,
+        suspendStatus,
+    });
 
     res.status(201).json({ inserted: docs.length, suspendStatus });
 });
