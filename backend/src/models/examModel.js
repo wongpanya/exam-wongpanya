@@ -92,6 +92,10 @@ const questionSchema = new mongoose.Schema({
         enum: ['exact', 'ai'],
         default: 'exact',
     },
+    imageUrl: {
+        type: String,
+        default: null,
+    },
     aiGrading: {
         type: aiGradingSchema,
         default: () => ({}),

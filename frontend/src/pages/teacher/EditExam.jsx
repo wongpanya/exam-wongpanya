@@ -4,6 +4,7 @@ import api from '../../config/api';
 import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
 import AIGradingConfig from '../../components/AIGradingConfig';
+import QuestionImageUploader from '../../components/QuestionImageUploader';
 
 const createDefaultAiGrading = (points = 1, groundTruth = '') => ({
     groundTruths: groundTruth ? [groundTruth] : [''],
@@ -22,6 +23,7 @@ const createDefaultAiGrading = (points = 1, groundTruth = '') => ({
 const createDefaultQuestion = () => ({
     type: 'radio',
     prompt: '',
+    imageUrl: null,
     choices: [{ value: 'a', label: '' }, { value: 'b', label: '' }],
     correctAnswer: '',
     points: 1,
@@ -30,11 +32,13 @@ const createDefaultQuestion = () => ({
 });
 
 const normalizeQuestion = (question) => {
+    const imageUrl = question.imageUrl || null;
     if (question.type !== 'text') {
-        return { ...question, gradingMode: 'exact', aiGrading: question.aiGrading || createDefaultAiGrading(question.points) };
+        return { ...question, imageUrl, gradingMode: 'exact', aiGrading: question.aiGrading || createDefaultAiGrading(question.points) };
     }
     return {
         ...question,
+        imageUrl,
         gradingMode: 'ai',
         choices: [],
         correctAnswer: '',
@@ -554,6 +558,13 @@ const EditExam = () => {
                                     placeholder="พิมพ์คำถามที่นี่..."
                                 />
                             </div>
+
+                            {/* Question Image Attachment */}
+                            <QuestionImageUploader
+                                imageUrl={q.imageUrl}
+                                onChange={(newUrl) => updateQuestion(qIndex, 'imageUrl', newUrl)}
+                                label={`รูปประกอบข้อที่ ${qIndex + 1}`}
+                            />
 
                             {q.type === 'text' && q.gradingMode === 'ai' ? (
                                 <AIGradingConfig

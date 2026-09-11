@@ -275,7 +275,7 @@ const getExams = asyncHandler(async (req, res) => {
         query = { createdBy: req.user._id };
     }
     const exams = await Exam.find(query)
-        .select('-questions.prompt -questions.choices -questions.aiGrading')
+        .select('-questions.prompt -questions.choices -questions.aiGrading -questions.imageUrl')
         .populate('category')
         .sort({ createdAt: -1 })
         .lean();

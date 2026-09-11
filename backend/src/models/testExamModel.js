@@ -24,6 +24,7 @@ const testExamSchema = new mongoose.Schema({
             label: String,
         }],
         correctAnswer: { type: String, default: '' },
+        imageUrl: { type: String, default: null },
         points: { type: Number, default: 5 },
         gradingMode: { type: String, enum: ['ai', 'exact'], default: 'ai' },
         aiGrading: {

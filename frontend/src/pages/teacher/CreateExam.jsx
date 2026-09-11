@@ -4,6 +4,7 @@ import api from '../../config/api';
 import { Plus, Trash2, GripVertical, Save, X, CheckCircle, Copy, Download, Upload } from 'lucide-react';
 import RichTextEditor from '../../components/RichTextEditor';
 import AIGradingConfig from '../../components/AIGradingConfig';
+import QuestionImageUploader from '../../components/QuestionImageUploader';
 
 const createDefaultAiGrading = (points = 1, groundTruth = '') => ({
     groundTruths: groundTruth ? [groundTruth] : [''],
@@ -22,6 +23,7 @@ const createDefaultAiGrading = (points = 1, groundTruth = '') => ({
 const createDefaultQuestion = () => ({
     type: 'radio',
     prompt: '',
+    imageUrl: null,
     choices: [
         { value: 'a', label: '' },
         { value: 'b', label: '' },
@@ -34,11 +36,13 @@ const createDefaultQuestion = () => ({
 
 const normalizeImportedQuestion = (question) => {
     const points = Number(question.points) || 1;
+    const imageUrl = question.imageUrl || null;
     if (question.type !== 'text') {
-        return { ...createDefaultQuestion(), ...question, gradingMode: 'exact' };
+        return { ...createDefaultQuestion(), ...question, imageUrl, gradingMode: 'exact' };
     }
     return {
         ...question,
+        imageUrl,
         type: 'text',
         choices: [],
         correctAnswer: '',
@@ -211,6 +215,7 @@ function parseCSVToQuestions(csvText) {
             questions.push({
                 type: 'text',
                 prompt: prompt || '',
+                imageUrl: null,
                 choices: [],
                 correctAnswer: '',
                 points,
@@ -255,6 +260,7 @@ function parseCSVToQuestions(csvText) {
             questions.push({
                 type: isCheckbox ? 'checkbox' : 'radio',
                 prompt: prompt || '',
+                imageUrl: null,
                 choices,
                 correctAnswer,
                 points: Number(rawPoints) || 1,
@@ -750,6 +756,13 @@ const CreateExam = () => {
                                     placeholder="พิมพ์คำถามที่นี่..."
                                 />
                             </div>
+
+                            {/* Question Image Attachment */}
+                            <QuestionImageUploader
+                                imageUrl={q.imageUrl}
+                                onChange={(newUrl) => updateQuestion(qIndex, 'imageUrl', newUrl)}
+                                label={`รูปประกอบข้อที่ ${qIndex + 1}`}
+                            />
 
                             {q.type === 'text' && q.gradingMode === 'ai' ? (
                                 <AIGradingConfig

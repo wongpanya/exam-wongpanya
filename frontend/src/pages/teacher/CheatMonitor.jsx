@@ -5,9 +5,10 @@ import { useDialog } from '../../components/DialogProvider';
 import {
     ArrowLeft, RefreshCw, Shield, AlertTriangle, Eye, EyeOff,
     Copy, Mouse, Keyboard, Monitor, Users, Filter, X, Lock, Unlock,
-    Search, SortAsc
+    Search, SortAsc, Maximize2
 } from 'lucide-react';
 import { getSocket } from '../../config/socket';
+import ImageLightboxModal from '../../components/ImageLightboxModal';
 
 const EVENT_CONFIG = {
     tab_switch: { label: 'สลับแท็บ', color: '#ef4444', bg: '#fef2f2', icon: Monitor },
@@ -44,6 +45,7 @@ const CheatMonitor = () => {
     const [studentLogs, setStudentLogs] = useState(null);
     const [loadingStudent, setLoadingStudent] = useState(false);
     const [modalTab, setModalTab] = useState('logs'); // logs, answers
+    const [lightboxImage, setLightboxImage] = useState(null);
     const fetchLogs = async (showRefresher = false) => {
         if (showRefresher) setIsRefreshing(true);
         try {
@@ -652,6 +654,26 @@ const CheatMonitor = () => {
                                                         dangerouslySetInnerHTML={{ __html: q.prompt }}
                                                     />
 
+                                                    {q.imageUrl && (
+                                                        <div className="mb-3">
+                                                            <div
+                                                                className="relative group inline-block max-w-xs rounded-lg overflow-hidden border border-gray-200 bg-white cursor-pointer shadow-xs hover:border-indigo-300 transition-all"
+                                                                onClick={() => setLightboxImage(q.imageUrl)}
+                                                                title="คลิกเพื่อดูภาพขนาดเต็ม"
+                                                            >
+                                                                <img
+                                                                    src={q.imageUrl}
+                                                                    alt={`รูปภาพข้อที่ ${i + 1}`}
+                                                                    className="max-h-36 w-auto object-contain rounded p-1 group-hover:scale-[1.01] transition-transform"
+                                                                />
+                                                                <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] font-medium flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                                                                    <Maximize2 size={10} />
+                                                                    <span>ดูรูป</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
                                                     <div className="space-y-2 text-sm">
                                                         <div className="flex items-start gap-2">
                                                             <span className="min-w-[60px] text-gray-500">ตอบ:</span>
@@ -692,6 +714,14 @@ const CheatMonitor = () => {
                 </div>
             )
             }
+
+            {/* Lightbox for Image Preview */}
+            <ImageLightboxModal
+                isOpen={!!lightboxImage}
+                onClose={() => setLightboxImage(null)}
+                imageUrl={lightboxImage}
+                alt="รูปภาพประกอบข้อสอบ"
+            />
         </div >
     );
 };

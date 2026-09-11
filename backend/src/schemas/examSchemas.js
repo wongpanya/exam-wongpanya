@@ -38,6 +38,7 @@ const questionSchema = z.object({
     correctAnswer: z.string().max(12000).default(''),
     points: z.number().finite().positive().max(1000).default(1),
     gradingMode: z.enum(['exact', 'ai']).default('exact'),
+    imageUrl: z.string().max(2000000).nullable().optional(),
     aiGrading: z.union([aiGradingSchema, emptyAiGradingSchema]).optional().default({}),
 }).strict().superRefine((question, ctx) => {
     const isAiEssay = question.type === 'text' && question.gradingMode === 'ai';

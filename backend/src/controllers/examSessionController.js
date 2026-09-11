@@ -554,6 +554,7 @@ const getAttempt = asyncHandler(async (req, res) => {
             'questions.questionId',
             'questions.type',
             'questions.prompt',
+            'questions.imageUrl',
             'questions.choices',
             'questions.points',
         ].join(' ')).lean();
@@ -589,6 +590,7 @@ const getAttempt = asyncHandler(async (req, res) => {
         questionId: question.questionId,
         type: question.type,
         prompt: question.prompt,
+        imageUrl: question.imageUrl || null,
         choices: orderChoices(question.choices || [], choiceOrderMap.get(question.questionId)),
         points: question.points,
     }));

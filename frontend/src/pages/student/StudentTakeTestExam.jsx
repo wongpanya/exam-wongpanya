@@ -12,8 +12,10 @@ import {
     ArrowLeft,
     Layers,
     RotateCcw,
-    Loader2
+    Loader2,
+    Maximize2
 } from 'lucide-react';
+import ImageLightboxModal from '../../components/ImageLightboxModal';
 
 const StudentTakeTestExam = () => {
     const { sessionId } = useParams();
@@ -24,6 +26,7 @@ const StudentTakeTestExam = () => {
     const [error, setError] = useState('');
     const [session, setSession] = useState(null);
     const [answers, setAnswers] = useState({});
+    const [lightboxImage, setLightboxImage] = useState(null);
     
     // Submission state
     const [submittedAttemptId, setSubmittedAttemptId] = useState(null);
@@ -329,6 +332,27 @@ const StudentTakeTestExam = () => {
                                 dangerouslySetInnerHTML={{ __html: q.prompt }}
                             />
 
+                            {/* Question Image */}
+                            {q.imageUrl && (
+                                <div className="pt-2">
+                                    <div
+                                        className="relative group inline-block max-w-full rounded-xl overflow-hidden border border-gray-200 bg-gray-50 cursor-pointer shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
+                                        onClick={() => setLightboxImage(q.imageUrl)}
+                                        title="คลิกเพื่อขยายภาพขนาดเต็ม"
+                                    >
+                                        <img
+                                            src={q.imageUrl}
+                                            alt={`รูปภาพประกอบข้อที่ ${idx + 1}`}
+                                            className="max-h-72 sm:max-h-80 w-auto object-contain rounded-lg group-hover:scale-[1.01] transition-transform duration-200"
+                                        />
+                                        <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-xs font-medium flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+                                            <Maximize2 size={13} />
+                                            <span>ดูรูปขนาดเต็ม</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Question Input Types */}
                             {q.type === 'text' ? (
                                 <div className="space-y-1.5 pt-2">
@@ -420,6 +444,14 @@ const StudentTakeTestExam = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Image Lightbox Modal */}
+            <ImageLightboxModal
+                isOpen={!!lightboxImage}
+                onClose={() => setLightboxImage(null)}
+                imageUrl={lightboxImage}
+                alt="รูปภาพประกอบข้อสอบ"
+            />
         </div>
     );
 };

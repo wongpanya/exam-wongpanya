@@ -19,6 +19,7 @@ import {
     X,
     Maximize2
 } from 'lucide-react';
+import ImageLightboxModal from '../../components/ImageLightboxModal';
 
 const AUTO_SAVE_INTERVAL = 45000; // 45 seconds (optimized from 30s)
 const DEBOUNCE_SAVE_MS = 2000;
@@ -54,6 +55,7 @@ const TakeExam = () => {
             return {};
         }
     });
+    const [lightboxImage, setLightboxImage] = useState(null);
     const questionsPerPage = 1;
 
     const timerRef = useRef(null);
@@ -815,6 +817,27 @@ const TakeExam = () => {
                                 />
                             </div>
 
+                            {/* Question Image Attachment */}
+                            {q.imageUrl && (
+                                <div className="mb-5">
+                                    <div
+                                        className="relative group inline-block max-w-full rounded-xl overflow-hidden border border-gray-200 bg-gray-50 cursor-pointer shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
+                                        onClick={() => setLightboxImage(q.imageUrl)}
+                                        title="คลิกเพื่อขยายภาพขนาดเต็ม"
+                                    >
+                                        <img
+                                            src={q.imageUrl}
+                                            alt={`รูปภาพประกอบข้อที่ ${currentPage + 1}`}
+                                            className="max-h-80 sm:max-h-96 w-auto object-contain rounded-lg group-hover:scale-[1.01] transition-transform duration-200"
+                                        />
+                                        <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-xs font-medium flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+                                            <Maximize2 size={13} />
+                                            <span>คลิกเพื่อดูรูปขนาดเต็ม</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {q.type === 'text' ? (
                                 <div>
                                     <div className="flex items-center justify-between mb-2">
@@ -1026,6 +1049,14 @@ const TakeExam = () => {
                     </div>
                 </div>
             )}
+
+            {/* Image Zoom Lightbox Modal */}
+            <ImageLightboxModal
+                isOpen={!!lightboxImage}
+                onClose={() => setLightboxImage(null)}
+                imageUrl={lightboxImage}
+                alt={`รูปภาพประกอบข้อที่ ${currentPage + 1}`}
+            />
         </div>
     );
 };

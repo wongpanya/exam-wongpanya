@@ -313,6 +313,7 @@ const getTestSession = asyncHandler(async (req, res) => {
             questionId: q.questionId,
             type: q.type,
             prompt: q.prompt,
+            imageUrl: q.imageUrl || null,
             choices: q.choices,
             points: q.points,
             gradingMode: q.gradingMode,

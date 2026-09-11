@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import { useDialog } from '../../components/DialogProvider';
-import { ArrowLeft, Clock, FileText, CheckCircle, Pencil, Play, History, Users, Shield, TrendingUp, ChevronRight, Trash2, ListChecks } from 'lucide-react';
+import { ArrowLeft, Clock, FileText, CheckCircle, Pencil, Play, History, Users, Shield, TrendingUp, ChevronRight, Trash2, ListChecks, Maximize2 } from 'lucide-react';
+import ImageLightboxModal from '../../components/ImageLightboxModal';
 
 const ExamDetail = () => {
     const { id } = useParams();
@@ -12,6 +13,7 @@ const ExamDetail = () => {
     const [historyPreview, setHistoryPreview] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [lightboxImage, setLightboxImage] = useState(null);
 
     const getConfig = () => {
         const user = JSON.parse(localStorage.getItem('user'));
@@ -233,6 +235,27 @@ const ExamDetail = () => {
                             </span>
                         </div>
 
+                        {/* Question Image */}
+                        {q.imageUrl && (
+                            <div className="mb-4 ml-1">
+                                <div
+                                    className="relative group inline-block max-w-md rounded-xl overflow-hidden border border-gray-200 bg-gray-50 cursor-pointer shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
+                                    onClick={() => setLightboxImage(q.imageUrl)}
+                                    title="คลิกเพื่อขยายภาพขนาดเต็ม"
+                                >
+                                    <img
+                                        src={q.imageUrl}
+                                        alt={`รูปประกอบข้อ ${index + 1}`}
+                                        className="max-h-60 w-auto object-contain rounded-lg group-hover:scale-[1.01] transition-transform"
+                                    />
+                                    <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-xs font-medium flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                                        <Maximize2 size={12} />
+                                        <span>ดูรูปขนาดเต็ม</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {q.type === 'text' && q.gradingMode === 'ai' ? (
                             <div className="space-y-4 ml-2">
                                 <div>
@@ -295,6 +318,14 @@ const ExamDetail = () => {
                     </div>
                 ))}
             </div>
+
+            {/* Lightbox for Exam Question Images */}
+            <ImageLightboxModal
+                isOpen={!!lightboxImage}
+                onClose={() => setLightboxImage(null)}
+                imageUrl={lightboxImage}
+                alt="รูปภาพประกอบข้อสอบ"
+            />
         </div>
     );
 };

@@ -20,8 +20,10 @@ import {
     Sparkles,
     UserCheck,
     XCircle,
+    Maximize2,
 } from 'lucide-react';
 import api from '../../config/api';
+import ImageLightboxModal from '../../components/ImageLightboxModal';
 
 const STATUS_STYLES = {
     pending: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -100,6 +102,7 @@ const GradingReview = () => {
     const viewParam = new URLSearchParams(location.search).get('view');
     const [allData, setAllData] = useState(null);
     const [showAll, setShowAll] = useState(viewParam === 'all');
+    const [lightboxImage, setLightboxImage] = useState(null);
     
     const [history, setHistory] = useState({ runs: [], reviews: [] });
     const [loading, setLoading] = useState(true);
@@ -461,6 +464,25 @@ const GradingReview = () => {
                                             className="prose prose-sm max-w-none text-gray-900"
                                             dangerouslySetInnerHTML={{ __html: q.prompt || '' }}
                                         />
+                                        {q.imageUrl && (
+                                            <div className="mt-2.5">
+                                                <div
+                                                    className="relative group inline-block max-w-md rounded-xl overflow-hidden border border-gray-200 bg-gray-50 cursor-pointer shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
+                                                    onClick={() => setLightboxImage(q.imageUrl)}
+                                                    title="คลิกเพื่อดูภาพขนาดเต็ม"
+                                                >
+                                                    <img
+                                                        src={q.imageUrl}
+                                                        alt={`รูปภาพประกอบข้อที่ ${idx + 1}`}
+                                                        className="max-h-56 w-auto object-contain rounded-lg group-hover:scale-[1.01] transition-transform"
+                                                    />
+                                                    <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-xs font-medium flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                                                        <Maximize2 size={12} />
+                                                        <span>ดูรูปขนาดเต็ม</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Student Answer */}
@@ -644,6 +666,25 @@ const GradingReview = () => {
                                     className="prose prose-sm max-w-none text-gray-900"
                                     dangerouslySetInnerHTML={{ __html: question?.prompt || '' }}
                                 />
+                                {question?.imageUrl && (
+                                    <div className="mt-3">
+                                        <div
+                                            className="relative group inline-block max-w-md rounded-xl overflow-hidden border border-gray-200 bg-gray-50 cursor-pointer shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
+                                            onClick={() => setLightboxImage(question.imageUrl)}
+                                            title="คลิกเพื่อดูภาพขนาดเต็ม"
+                                        >
+                                            <img
+                                                src={question.imageUrl}
+                                                alt="รูปภาพประกอบข้อสอบ"
+                                                className="max-h-64 w-auto object-contain rounded-lg group-hover:scale-[1.01] transition-transform"
+                                            />
+                                            <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-xs font-medium flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                                                <Maximize2 size={12} />
+                                                <span>ดูรูปขนาดเต็ม</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
                                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-900">
@@ -1407,6 +1448,14 @@ const QuestionReviewCard = ({
                     </button>
                 </div>
             </div>
+
+            {/* Lightbox for Question Images */}
+            <ImageLightboxModal
+                isOpen={!!lightboxImage}
+                onClose={() => setLightboxImage(null)}
+                imageUrl={lightboxImage}
+                alt="รูปภาพประกอบข้อสอบ"
+            />
         </div>
     );
 };
