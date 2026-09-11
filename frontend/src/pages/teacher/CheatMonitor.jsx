@@ -39,7 +39,7 @@ const CheatMonitor = () => {
     const [activeTab, setActiveTab] = useState('overview');
     const [filterType, setFilterType] = useState('all');
     const [selectedStudent, setSelectedStudent] = useState(null);
-    const [studentLogs, setStudentLogs] = useState([]);
+    const [studentLogs, setStudentLogs] = useState(null);
     const [loadingStudent, setLoadingStudent] = useState(false);
     const [modalTab, setModalTab] = useState('logs'); // logs, answers
     const fetchLogs = async (showRefresher = false) => {
@@ -110,6 +110,7 @@ const CheatMonitor = () => {
 
     const handleStudentClick = (student) => {
         setSelectedStudent(student);
+        setStudentLogs(null);
         setModalTab('logs');
         fetchStudentLogs(student._id);
     };
@@ -543,10 +544,10 @@ const CheatMonitor = () => {
                                 <div className="space-y-3">
                                     {loadingStudent ? (
                                         <p className="text-center text-gray-400 text-sm">Loading logs...</p>
-                                    ) : studentLogs?.logs?.length === 0 ? (
+                                    ) : (!studentLogs?.logs || studentLogs.logs.length === 0) ? (
                                         <p className="text-center text-gray-400 text-sm py-4">ไม่พบเหตุการณ์ผิดปกติ</p>
                                     ) : (
-                                        studentLogs?.logs?.map((log, i) => {
+                                        studentLogs.logs.map((log, i) => {
                                             const config = EVENT_CONFIG[log.eventType] || {};
                                             return (
                                                 <div key={i} className="flex gap-3">
@@ -575,20 +576,31 @@ const CheatMonitor = () => {
                                 <div className="space-y-4">
                                     {loadingStudent ? (
                                         <p className="text-center text-gray-400 text-sm">Loading answers...</p>
-                                    ) : !studentLogs?.exam ? (
+                                    ) : (!studentLogs?.exam?.questions || studentLogs.exam.questions.length === 0) ? (
                                         <p className="text-center text-gray-400 text-sm py-4">ไม่พบข้อมูลคำตอบ</p>
                                     ) : (
                                         studentLogs.exam.questions.map((q, i) => {
                                             const isAiEssay = q.type === 'text' && q.gradingMode === 'ai';
                                             const grading = studentLogs.gradingResults?.find(result => result.questionId === q.questionId);
-                                            const normalizeAnswer = (answer) => String(answer || '').split(',').filter(Boolean).sort().join(',');
-                                            const answerLabels = (answer) => String(answer || '')
+                                            const answerRecord = studentLogs.answers?.find(a => a.questionId === q.questionId);
+                                            const studentAnswer = answerRecord?.selectedAnswer;
+                                            const hasAnswered = studentAnswer !== undefined && studentAnswer !== null && String(studentAnswer).trim() !== '';
+                                            const normalizeAnswer = (answer) => String(answer || '')
                                                 .split(',')
+                                                .map(s => s.trim())
                                                 .filter(Boolean)
-                                                .map(value => q.choices?.find(choice => choice.value === value)?.label || value)
-                                                .join(', ');
-                                            const isCorrect = !isAiEssay && normalizeAnswer(studentAnswer) === normalizeAnswer(q.correctAnswer);
-                                            const hasAnswered = studentAnswer !== undefined && studentAnswer !== '';
+                                                .sort()
+                                                .join(',');
+                                            const answerLabels = (answer) => {
+                                                if (q.type === 'text') return answer || '';
+                                                return String(answer || '')
+                                                    .split(',')
+                                                    .map(value => value.trim())
+                                                    .filter(Boolean)
+                                                    .map(value => q.choices?.find(choice => choice.value === value)?.label || value)
+                                                    .join(', ');
+                                            };
+                                            const isCorrect = !isAiEssay && hasAnswered && normalizeAnswer(studentAnswer) === normalizeAnswer(q.correctAnswer);
 
                                             return (
                                                 <div key={i} className={`border rounded-lg p-4 ${isAiEssay ? 'bg-indigo-50 border-indigo-200' : isCorrect ? 'bg-green-50 border-green-200' : hasAnswered ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -610,7 +622,7 @@ const CheatMonitor = () => {
                                                     <div className="space-y-2 text-sm">
                                                         <div className="flex items-start gap-2">
                                                             <span className="min-w-[60px] text-gray-500">ตอบ:</span>
-                                                            <span className={`font-medium whitespace-pre-wrap ${isAiEssay ? 'text-gray-800' : isCorrect ? 'text-green-700' : 'text-red-600'}`}>
+                                                            <span className={`font-medium whitespace-pre-wrap ${isAiEssay ? 'text-gray-800' : isCorrect ? 'text-green-700' : hasAnswered ? 'text-red-600' : 'text-gray-400 italic'}`}>
                                                                 {hasAnswered ? (
                                                                     isAiEssay ? studentAnswer : answerLabels(studentAnswer)
                                                                 ) : (
