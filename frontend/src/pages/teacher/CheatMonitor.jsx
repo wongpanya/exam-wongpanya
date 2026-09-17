@@ -5,7 +5,7 @@ import { useDialog } from '../../components/DialogProvider';
 import {
     ArrowLeft, RefreshCw, Shield, AlertTriangle, Eye, EyeOff,
     Copy, Mouse, Keyboard, Monitor, Users, Filter, X, Lock, Unlock,
-    Search, SortAsc, CheckCircle, Clock
+    Search, SortAsc, CheckCircle, Clock, Edit3, History, ArrowRight
 } from 'lucide-react';
 import { getSocket } from '../../config/socket';
 
@@ -43,7 +43,8 @@ const CheatMonitor = () => {
     const [selectedStudent, setSelectedStudent] = useState(null);
     const [studentLogs, setStudentLogs] = useState(null);
     const [loadingStudent, setLoadingStudent] = useState(false);
-    const [modalTab, setModalTab] = useState('logs'); // logs, answers
+    const [modalTab, setModalTab] = useState('logs'); // logs, history, answers
+    const [historyFilter, setHistoryFilter] = useState('all'); // all (combined) or answers_only
     const fetchLogs = async (showRefresher = false) => {
         if (showRefresher) setIsRefreshing(true);
         try {
@@ -611,16 +612,22 @@ const CheatMonitor = () => {
                             </div>
 
                             {/* Modal Tabs */}
-                            <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg">
+                            <div className="flex gap-1.5 mb-4 bg-gray-100 p-1 rounded-lg">
                                 <button
                                     onClick={() => setModalTab('logs')}
-                                    className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition ${modalTab === 'logs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                                    className={`flex-1 py-1.5 px-2 rounded-md text-xs sm:text-sm font-medium transition ${modalTab === 'logs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                                 >
                                     ประวัติการทุจริต ({studentLogs?.logs?.length || 0})
                                 </button>
                                 <button
+                                    onClick={() => setModalTab('history')}
+                                    className={`flex-1 py-1.5 px-2 rounded-md text-xs sm:text-sm font-medium transition ${modalTab === 'history' ? 'bg-white shadow-sm text-indigo-700 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    ประวัติการตอบ ({studentLogs?.answerHistory?.length || 0})
+                                </button>
+                                <button
                                     onClick={() => setModalTab('answers')}
-                                    className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition ${modalTab === 'answers' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                                    className={`flex-1 py-1.5 px-2 rounded-md text-xs sm:text-sm font-medium transition ${modalTab === 'answers' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                                 >
                                     คำตอบที่ส่ง ({studentLogs?.answers?.length || 0})
                                 </button>
@@ -671,6 +678,213 @@ const CheatMonitor = () => {
                                 </div>
                             )}
 
+                            {/* Answer History & Timeline Content */}
+                            {modalTab === 'history' && (
+                                <div className="space-y-3">
+                                    {/* View Mode Filter */}
+                                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-gray-100">
+                                        <div className="flex gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setHistoryFilter('all')}
+                                                className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${historyFilter === 'all'
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            >
+                                                ไทม์ไลน์รวม (ตอบ + ทุจริต)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setHistoryFilter('answers_only')}
+                                                className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${historyFilter === 'answers_only'
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            >
+                                                เฉพาะการตอบ/เปลี่ยน ({studentLogs?.answerHistory?.length || 0})
+                                            </button>
+                                        </div>
+                                        <span className="text-[11px] text-gray-400 font-mono hidden sm:inline">
+                                            ล่าสุด ➔ แรกสุด
+                                        </span>
+                                    </div>
+
+                                    {loadingStudent ? (
+                                        <p className="text-center text-gray-400 text-sm py-4">กำลังโหลดข้อมูล...</p>
+                                    ) : (
+                                        (() => {
+                                            const items = [];
+                                            (studentLogs?.answerHistory || []).forEach((h, idx) => {
+                                                const time = new Date(h.timestamp).getTime();
+                                                items.push({
+                                                    id: `ans-${idx}-${time}`,
+                                                    type: 'answer',
+                                                    timestamp: time,
+                                                    data: h,
+                                                });
+                                            });
+
+                                            if (historyFilter === 'all') {
+                                                (studentLogs?.logs || []).forEach((l, idx) => {
+                                                    const time = new Date(l.timestamp).getTime();
+                                                    items.push({
+                                                        id: `cheat-${idx}-${time}`,
+                                                        type: 'cheat',
+                                                        timestamp: time,
+                                                        data: l,
+                                                    });
+                                                });
+                                            }
+
+                                            items.sort((a, b) => b.timestamp - a.timestamp);
+
+                                            if (items.length === 0) {
+                                                return (
+                                                    <div className="text-center py-8 text-gray-400 text-sm">
+                                                        <History size={32} className="mx-auto mb-2 text-gray-300" />
+                                                        <p>ยังไม่มีบันทึกประวัติการตอบคำตอบ</p>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+                                                    {items.map((item) => {
+                                                        if (item.type === 'cheat') {
+                                                            const log = item.data;
+                                                            const config = EVENT_CONFIG[log.eventType] || {};
+                                                            const IconComp = config.icon || Shield;
+                                                            const isImmediate = config.immediate || log.eventType === 'fullscreen_exit' || log.eventType === 'split_screen';
+                                                            return (
+                                                                <div key={item.id} className="bg-red-50/70 p-2.5 rounded-lg border border-red-100 flex items-start gap-2.5">
+                                                                    <div className="mt-0.5 p-1 rounded-full shrink-0" style={{ backgroundColor: config.bg || '#fee2e2' }}>
+                                                                        <IconComp size={12} style={{ color: config.color || '#dc2626' }} />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex justify-between items-center">
+                                                                            <span className="font-semibold text-xs text-red-900 flex items-center gap-1.5">
+                                                                                <span>🚨 {config.label || log.eventType}</span>
+                                                                                {isImmediate && (
+                                                                                    <span className="px-1.5 py-0.2 bg-red-200 text-red-800 text-[10px] font-bold rounded">
+                                                                                        ระงับทันที
+                                                                                    </span>
+                                                                                )}
+                                                                            </span>
+                                                                            <span className="text-xs text-gray-400 font-mono">
+                                                                                {formatTime(log.timestamp)}
+                                                                            </span>
+                                                                        </div>
+                                                                        {log.detail && (
+                                                                            <p className="text-[11px] text-red-700/80 mt-0.5">
+                                                                                {log.detail}
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        // Answer item
+                                                        const h = item.data;
+                                                        const qIdx = studentLogs?.exam?.questions?.findIndex(q => q.questionId === h.questionId);
+                                                        const q = qIdx >= 0 ? studentLogs.exam.questions[qIdx] : null;
+                                                        const qNum = qIdx >= 0 ? qIdx + 1 : '?';
+
+                                                        const getLabel = (val) => {
+                                                            if (!val || String(val).trim() === '') return '';
+                                                            if (!q || q.type === 'text') return val;
+                                                            return String(val).split(',').map(v => v.trim()).filter(Boolean).map(v => {
+                                                                const c = q.choices?.find(x => x.value === v);
+                                                                return c ? c.label : v;
+                                                            }).join(', ');
+                                                        };
+
+                                                        const fromLabel = getLabel(h.fromAnswer);
+                                                        const toLabel = getLabel(h.toAnswer);
+                                                        const isChange = Boolean(h.fromAnswer && h.toAnswer);
+                                                        const isCleared = Boolean(h.fromAnswer && !h.toAnswer);
+
+                                                        // Check if a cheat log occurred within 120 seconds before this answer
+                                                        const nearbyCheat = (studentLogs?.logs || []).find(cl => {
+                                                            const diffMs = item.timestamp - new Date(cl.timestamp).getTime();
+                                                            return diffMs >= 0 && diffMs <= 120000;
+                                                        });
+                                                        const cheatDiffSec = nearbyCheat ? Math.max(1, Math.round((item.timestamp - new Date(nearbyCheat.timestamp).getTime()) / 1000)) : null;
+
+                                                        return (
+                                                            <div key={item.id} className={`p-3 rounded-lg border transition ${isChange ? 'bg-amber-50/40 border-amber-200/90' : 'bg-white border-gray-100 shadow-sm'}`}>
+                                                                <div className="flex justify-between items-start gap-2">
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        <span className="font-bold text-sm text-gray-900">
+                                                                            ข้อ {qNum}
+                                                                        </span>
+                                                                        {isChange ? (
+                                                                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded flex items-center gap-1">
+                                                                                <Edit3 size={10} /> เปลี่ยนคำตอบ
+                                                                            </span>
+                                                                        ) : isCleared ? (
+                                                                            <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded">
+                                                                                ลบคำตอบ
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-bold rounded flex items-center gap-1">
+                                                                                <CheckCircle size={10} /> เลือกครั้งแรก
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <span className="text-xs text-gray-500 font-mono shrink-0">
+                                                                        {formatTime(h.timestamp)}
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Answer details */}
+                                                                <div className="mt-1.5 text-xs">
+                                                                    {isChange ? (
+                                                                        <div className="flex items-center gap-1.5 flex-wrap font-medium">
+                                                                            <span className="text-red-600 line-through bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
+                                                                                {fromLabel}
+                                                                            </span>
+                                                                            <ArrowRight size={12} className="text-gray-400 shrink-0" />
+                                                                            <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 font-semibold">
+                                                                                {toLabel}
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : isCleared ? (
+                                                                        <p className="text-gray-500 italic">
+                                                                            ยกเลิกคำตอบเดิม (<span className="line-through">{fromLabel}</span>)
+                                                                        </p>
+                                                                    ) : (
+                                                                        <p className="text-blue-800 font-medium">
+                                                                            เลือก: <span className="bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-semibold">{toLabel}</span>
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Question Prompt Preview */}
+                                                                {q?.prompt && (
+                                                                    <p className="text-[11px] text-gray-400 mt-1 line-clamp-1">
+                                                                        {q.prompt.replace(/<[^>]+>/g, '')}
+                                                                    </p>
+                                                                )}
+
+                                                                {/* Cheat Correlation Alert */}
+                                                                {nearbyCheat && (
+                                                                    <div className="mt-2 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-1.5">
+                                                                        <AlertTriangle size={12} className="text-amber-600 shrink-0" />
+                                                                        <span>
+                                                                            เปลี่ยนคำตอบหลัง <strong>{EVENT_CONFIG[nearbyCheat.eventType]?.label || nearbyCheat.eventType}</strong> ({cheatDiffSec} วินาทีก่อนหน้า)
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        })()
+                                    )}
+                                </div>
+                            )}
+
                             {/* Answers Content */}
                             {modalTab === 'answers' && (
                                 <div className="space-y-4">
@@ -685,6 +899,7 @@ const CheatMonitor = () => {
                                             const answerRecord = studentLogs.answers?.find(a => a.questionId === q.questionId);
                                             const studentAnswer = answerRecord?.selectedAnswer;
                                             const hasAnswered = studentAnswer !== undefined && studentAnswer !== null && String(studentAnswer).trim() !== '';
+                                            const qHistory = (studentLogs?.answerHistory || []).filter(h => h.questionId === q.questionId);
                                             const normalizeAnswer = (answer) => String(answer || '')
                                                 .split(',')
                                                 .map(s => s.trim())
@@ -704,15 +919,29 @@ const CheatMonitor = () => {
 
                                             return (
                                                 <div key={i} className={`border rounded-lg p-4 ${isAiEssay ? 'bg-indigo-50 border-indigo-200' : isCorrect ? 'bg-green-50 border-green-200' : hasAnswered ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                    <div className="flex justify-between mb-2">
-                                                        <h4 className="font-semibold text-gray-900">ข้อ {i + 1}</h4>
-                                                        <span className="text-xs font-bold px-2 py-1 rounded bg-white border">
-                                                             {isAiEssay
-                                                                 ? (grading?.finalScore !== null && grading?.finalScore !== undefined
-                                                                     ? `${grading.finalScore} / ${q.points} คะแนน`
-                                                                     : grading?.status === 'failed' ? 'ตรวจไม่สำเร็จ' : 'รอผล AI')
-                                                                 : isCorrect ? `${q.points} / ${q.points} คะแนน` : `0 / ${q.points} คะแนน`}
-                                                        </span>
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                                                            <span>ข้อ {i + 1}</span>
+                                                            {answerRecord?.answeredAt && (
+                                                                <span className="text-[11px] text-gray-400 font-normal flex items-center gap-1 font-mono">
+                                                                    <Clock size={11} /> {formatTime(answerRecord.answeredAt)}
+                                                                </span>
+                                                            )}
+                                                        </h4>
+                                                        <div className="flex items-center gap-1.5">
+                                                            {qHistory.length > 1 && (
+                                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-800 flex items-center gap-1">
+                                                                    <Edit3 size={10} /> เปลี่ยน {qHistory.length - 1} ครั้ง
+                                                                </span>
+                                                            )}
+                                                            <span className="text-xs font-bold px-2 py-1 rounded bg-white border">
+                                                                 {isAiEssay
+                                                                     ? (grading?.finalScore !== null && grading?.finalScore !== undefined
+                                                                         ? `${grading.finalScore} / ${q.points} คะแนน`
+                                                                         : grading?.status === 'failed' ? 'ตรวจไม่สำเร็จ' : 'รอผล AI')
+                                                                     : isCorrect ? `${q.points} / ${q.points} คะแนน` : `0 / ${q.points} คะแนน`}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     <div 
                                                         className="prose prose-sm max-w-none text-gray-800 mb-3"
@@ -738,6 +967,36 @@ const CheatMonitor = () => {
                                                                 </span>
                                                             </div>
                                                         )}
+
+                                                        {/* Individual Question Answer History */}
+                                                        {qHistory.length > 1 && (
+                                                            <div className="mt-2.5 pt-2 border-t border-gray-200 text-xs">
+                                                                <p className="text-gray-500 font-semibold mb-1 flex items-center gap-1">
+                                                                    <History size={12} className="text-amber-600" /> ประวัติการเปลี่ยนคำตอบในข้อนี้:
+                                                                </p>
+                                                                <div className="space-y-1 bg-white/70 p-2 rounded border border-gray-200/60 font-sans">
+                                                                    {qHistory.map((qh, hIdx) => {
+                                                                        const fromL = answerLabels(qh.fromAnswer);
+                                                                        const toL = answerLabels(qh.toAnswer);
+                                                                        return (
+                                                                            <div key={hIdx} className="flex items-center gap-1.5 text-xs text-gray-700">
+                                                                                <span className="font-mono text-gray-400 text-[11px]">{formatTime(qh.timestamp)}</span>
+                                                                                {qh.fromAnswer ? (
+                                                                                    <span className="flex items-center gap-1">
+                                                                                        <span className="line-through text-red-500">{fromL}</span>
+                                                                                        <ArrowRight size={10} className="text-gray-400" />
+                                                                                        <span className="font-semibold text-emerald-700">{toL}</span>
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span>เลือกครั้งแรก: <span className="font-semibold text-blue-700">{toL}</span></span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
                                                         {isAiEssay && grading && (
                                                             <button
                                                                 type="button"

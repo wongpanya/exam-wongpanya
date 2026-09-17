@@ -61,6 +61,7 @@ const TakeExam = () => {
     const statusCheckTimerRef = useRef(null);
     const debounceSaveRef = useRef(null);
     const answersRef = useRef({});
+    const answerTimestampsRef = useRef({});
     const questionsTopRef = useRef(null);
 
     const goToPage = useCallback((page) => {
@@ -80,7 +81,7 @@ const TakeExam = () => {
     }, []);
 
     // Anti-cheat hook
-    const { cheatCount, isTabHidden, isFullscreen, warnings, resetCheatStatus } = useAntiCheat(
+    const { cheatCount, isTabHidden, isWindowBlurred, isFullscreen, warnings, resetCheatStatus } = useAntiCheat(
         examId, 
         !submitted && !suspended && (isMobile || hasEnteredFullscreen), 
         handleSuspend
@@ -138,6 +139,7 @@ const TakeExam = () => {
             const answerArray = Object.entries(currentAnswers).map(([questionId, selectedAnswer]) => ({
                 questionId,
                 selectedAnswer,
+                answeredAt: answerTimestampsRef.current[questionId] || new Date().toISOString(),
             }));
 
             // Auto-save now returns status
@@ -187,6 +189,9 @@ const TakeExam = () => {
                 data.attempt.answers?.forEach(a => {
                     if (a.selectedAnswer) {
                         existingAnswers[a.questionId] = a.selectedAnswer;
+                        if (a.answeredAt) {
+                            answerTimestampsRef.current[a.questionId] = a.answeredAt;
+                        }
                     }
                 });
 
@@ -306,6 +311,7 @@ const TakeExam = () => {
                 updated[questionId] = value;
             }
             answersRef.current = updated;
+            answerTimestampsRef.current[questionId] = new Date().toISOString();
             saveToLocalStorage(updated);
 
             if (debounceSaveRef.current) clearTimeout(debounceSaveRef.current);
@@ -349,6 +355,7 @@ const TakeExam = () => {
             const answerArray = Object.entries(answersRef.current).map(([questionId, selectedAnswer]) => ({
                 questionId,
                 selectedAnswer,
+                answeredAt: answerTimestampsRef.current[questionId] || new Date().toISOString(),
             }));
 
             const { data } = await api.post(
@@ -640,23 +647,55 @@ const TakeExam = () => {
                 </div>
             )}
 
-            {/* Tab hidden overlay (Soft, professional warning) */}
-            {isTabHidden && !suspended && (
-                <div className="fixed inset-0 z-40 bg-gray-900/85 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+            {/* Anti-Screen Capture / Lost Focus Overlay */}
+            {(isTabHidden || isWindowBlurred) && !suspended && (
+                <div 
+                    onClick={() => window.focus()}
+                    className="fixed inset-0 z-50 bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in cursor-pointer select-none"
+                >
                     <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-sm text-center border border-gray-100 animate-scale-up">
                         <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
                             <AlertTriangle size={32} />
                         </div>
-                        <h2 className="text-xl font-bold text-gray-900 mb-2">กรุณากลับมาที่หน้าต่างสอบ</h2>
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">หน้าต่างสอบสูญเสียการโฟกัส</h2>
                         <p className="text-gray-600 text-sm mb-4">
-                            ระบบตรวจพบว่าหน้าต่างสอบสูญเสียการโฟกัส ข้อมูลนี้ถูกบันทึกในรายงานคุมสอบ
+                            ตรวจพบการสลับหน้าต่างหรือเรียกใช้เครื่องมือภายนอก หน้าจอจึงถูกบดบังชั่วคราวเพื่อป้องกันการทุจริตและการจับภาพหน้าจอ
                         </p>
-                        <p className="text-xs text-indigo-600 font-medium bg-indigo-50 py-2 px-3 rounded-lg">
-                            คลิกที่หน้าต่างนี้เพื่อทำข้อสอบต่อ
+                        <p className="text-xs text-indigo-600 font-medium bg-indigo-50 py-2.5 px-4 rounded-lg hover:bg-indigo-100 transition">
+                            คลิกที่นี่เพื่อกลับมาทำข้อสอบต่อ
                         </p>
                     </div>
                 </div>
             )}
+
+            {/* Submitting Loading Overlay */}
+            {submitting && (
+                <div className="fixed inset-0 z-50 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in select-none">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-sm w-full text-center border border-gray-100 animate-scale-up">
+                        <div className="relative w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                            <div className="w-16 h-16 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
+                            <Send size={24} className="text-indigo-600 absolute animate-pulse" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900 mb-1.5">กำลังส่งข้อสอบ...</h3>
+                        <p className="text-sm text-gray-500 mb-4">
+                            ระบบกำลังประมวลผลและบันทึกคำตอบทั้งหมด กรุณารอสักครู่
+                        </p>
+                        <div className="flex items-center justify-center gap-1.5 text-xs text-amber-700 bg-amber-50 py-2.5 px-3.5 rounded-xl border border-amber-200 font-medium">
+                            <AlertTriangle size={14} className="shrink-0 text-amber-600" />
+                            <span>กรุณาอย่าปิดหรือรีเฟรชหน้าต่างนี้</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Print Media Protection (Prevent Ctrl+P / Printing to PDF) */}
+            <style>{`
+                @media print {
+                    body {
+                        display: none !important;
+                    }
+                }
+            `}</style>
 
             {/* Sticky Timer Header */}
             <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-gray-200 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 shadow-2xs">
@@ -778,12 +817,16 @@ const TakeExam = () => {
             </div>
 
             {/* Questions Card */}
-            <div ref={questionsTopRef} className={`space-y-4 ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}>
+            <div 
+                ref={questionsTopRef} 
+                className={`space-y-4 ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}
+                style={{ filter: (isTabHidden || isWindowBlurred) ? 'blur(20px)' : undefined }}
+            >
                 {currentQuestions.map((q, index) => {
                     const globalIndex = (currentPage - 1) * questionsPerPage + index;
                     const isFlagged = Boolean(flaggedQuestions[q.questionId]);
                     return (
-                        <div key={q.questionId} className="bg-white rounded-xl shadow-2xs p-5 sm:p-7 border border-gray-200">
+                        <div key={q.questionId} className="bg-white rounded-xl shadow-2xs p-5 sm:p-7 border border-gray-200 select-none">
                             {/* Question Header */}
                             <div className="flex items-center justify-between gap-3 pb-4 border-b border-gray-100 mb-4">
                                 <div className="flex items-baseline gap-2">
@@ -837,7 +880,7 @@ const TakeExam = () => {
                                         rows={8}
                                         disabled={suspended}
                                         placeholder="พิมพ์คำตอบอัตนัยที่นี่..."
-                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none resize-y text-sm leading-6 disabled:bg-gray-100 font-sans"
+                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none resize-y text-sm leading-6 disabled:bg-gray-100 font-sans select-text"
                                     />
                                 </div>
                             ) : (

@@ -9,6 +9,29 @@ const answerSchema = new mongoose.Schema({
         type: String,
         default: '',
     },
+    answeredAt: {
+        type: Date,
+        default: null,
+    },
+}, { _id: false });
+
+const answerHistorySchema = new mongoose.Schema({
+    questionId: {
+        type: String,
+        required: true,
+    },
+    fromAnswer: {
+        type: String,
+        default: '',
+    },
+    toAnswer: {
+        type: String,
+        default: '',
+    },
+    timestamp: {
+        type: Date,
+        default: Date.now,
+    },
 }, { _id: false });
 
 const choiceOrderSchema = new mongoose.Schema({
@@ -43,6 +66,7 @@ const examAttemptSchema = new mongoose.Schema({
     }],
     choiceOrder: [choiceOrderSchema],
     answers: [answerSchema],
+    answerHistory: [answerHistorySchema],
     score: {
         type: Number,
         default: null,

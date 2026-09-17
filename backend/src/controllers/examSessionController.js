@@ -66,8 +66,81 @@ const safeEmit = (room, event, data) => {
     }
 };
 
+const MAX_ANSWER_HISTORY_ENTRIES = 300;
+
+/**
+ * Record answer choices or changes into attempt.answerHistory and sync attempt.answers
+ */
+const recordAnswerChanges = (attempt, incomingAnswers, now = new Date()) => {
+    if (!Array.isArray(incomingAnswers)) return;
+
+    if (!attempt.answerHistory) {
+        attempt.answerHistory = [];
+    }
+    if (!attempt.answers) {
+        attempt.answers = [];
+    }
+
+    const currentMap = new Map();
+    for (const ans of attempt.answers) {
+        if (ans && ans.questionId) {
+            currentMap.set(ans.questionId, ans);
+        }
+    }
+
+    for (const incoming of incomingAnswers) {
+        if (!incoming || !incoming.questionId) continue;
+        const qId = incoming.questionId;
+        const newAns = incoming.selectedAnswer !== undefined && incoming.selectedAnswer !== null
+            ? String(incoming.selectedAnswer)
+            : '';
+
+        let answeredTimestamp = now;
+        if (incoming.answeredAt) {
+            const parsed = new Date(incoming.answeredAt);
+            if (!isNaN(parsed.getTime())) {
+                answeredTimestamp = parsed;
+            }
+        }
+
+        const currentEntry = currentMap.get(qId);
+        const oldAns = currentEntry && currentEntry.selectedAnswer !== undefined && currentEntry.selectedAnswer !== null
+            ? String(currentEntry.selectedAnswer)
+            : '';
+
+        if (oldAns !== newAns) {
+            // Only log if oldAns is not empty OR newAns is not empty
+            if (oldAns !== '' || newAns !== '') {
+                if (attempt.answerHistory.length < MAX_ANSWER_HISTORY_ENTRIES) {
+                    attempt.answerHistory.push({
+                        questionId: qId,
+                        fromAnswer: oldAns,
+                        toAnswer: newAns,
+                        timestamp: answeredTimestamp,
+                    });
+                }
+            }
+
+            // Update or add entry in attempt.answers
+            if (currentEntry) {
+                currentEntry.selectedAnswer = newAns;
+                currentEntry.answeredAt = answeredTimestamp;
+            } else {
+                const newObj = {
+                    questionId: qId,
+                    selectedAnswer: newAns,
+                    answeredAt: answeredTimestamp,
+                };
+                attempt.answers.push(newObj);
+                currentMap.set(qId, newObj);
+            }
+        }
+    }
+};
+
 const normalizeFinalAnswers = (exam, answers) => {
     const answerMap = new Map();
+    const answeredAtMap = new Map();
     for (const answer of Array.isArray(answers) ? answers : []) {
         if (answerMap.has(answer.questionId)) {
             const error = new Error(`Duplicate answer for question ${answer.questionId}`);
@@ -75,6 +148,9 @@ const normalizeFinalAnswers = (exam, answers) => {
             throw error;
         }
         answerMap.set(answer.questionId, answer.selectedAnswer || '');
+        if (answer.answeredAt) {
+            answeredAtMap.set(answer.questionId, answer.answeredAt);
+        }
     }
 
     const validIds = new Set(exam.questions.map(question => question.questionId));
@@ -89,6 +165,7 @@ const normalizeFinalAnswers = (exam, answers) => {
     return exam.questions.map(question => ({
         questionId: question.questionId,
         selectedAnswer: answerMap.get(question.questionId) || '',
+        answeredAt: answeredAtMap.get(question.questionId) || null,
     }));
 };
 
@@ -597,6 +674,7 @@ const getAttempt = asyncHandler(async (req, res) => {
     delete safeAttempt.objectiveScore;
     delete safeAttempt.aiScore;
     delete safeAttempt.teacherScore;
+    delete safeAttempt.answerHistory;
     if (['pending', 'processing', 'needs-review', 'failed'].includes(attempt.gradingStatus)) {
         safeAttempt.score = null;
         safeAttempt.finalScore = null;
@@ -662,11 +740,8 @@ const autoSave = asyncHandler(async (req, res) => {
         throw new Error('Exam time limit exceeded');
     }
 
-    // Update answers
-    // Merge logic: update existing answer or push new
-    // We can just replace the array if we send full state, or merge carefully
-    // Assuming frontend sends full state of answered questions
-    attempt.answers = answers;
+    // Record any new choices or changes into answerHistory and update attempt.answers
+    recordAnswerChanges(attempt, answers);
     await attempt.save();
 
     res.json({ message: 'Saved', saved: true, status: attempt.status });
@@ -715,8 +790,11 @@ const submitExam = asyncHandler(async (req, res) => {
         throw new Error('Exam time limit exceeded');
     }
 
+    // Record any last-second answer changes before final submission
+    recordAnswerChanges(attempt, answers);
+
     // Save one canonical entry per question, including an empty essay answer.
-    attempt.answers = normalizeFinalAnswers(examData, answers);
+    attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
     attempt.status = 'submitted';
     attempt.submittedAt = Date.now();
     await attempt.save();
@@ -1007,6 +1085,8 @@ const getStudentCheatLogs = asyncHandler(async (req, res) => {
         score: attempt.score,
         totalPoints: attempt.totalPoints,
         answers: attempt.answers,
+        answerHistory: attempt.answerHistory || [],
+        questionOrder: attempt.questionOrder || [],
         exam: attempt.exam,
         gradingResults: answerGradingResults,
         startedAt: attempt.startedAt,
