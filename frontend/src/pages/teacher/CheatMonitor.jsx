@@ -5,7 +5,7 @@ import { useDialog } from '../../components/DialogProvider';
 import {
     ArrowLeft, RefreshCw, Shield, AlertTriangle, Eye, EyeOff,
     Copy, Mouse, Keyboard, Monitor, Users, Filter, X, Lock, Unlock,
-    Search, SortAsc
+    Search, SortAsc, CheckCircle, Clock
 } from 'lucide-react';
 import { getSocket } from '../../config/socket';
 
@@ -20,8 +20,8 @@ const EVENT_CONFIG = {
     print_screen: { label: 'PrintScreen', color: '#dc2626', bg: '#fef2f2', icon: Keyboard },
     devtools: { label: 'DevTools', color: '#dc2626', bg: '#fef2f2', icon: Keyboard },
     forbidden_key: { label: 'ปุ่มต้องห้าม', color: '#dc2626', bg: '#fef2f2', icon: Keyboard },
-    fullscreen_exit: { label: 'ออกจากเต็มจอ', color: '#dc2626', bg: '#fef2f2', icon: Monitor },
-    split_screen: { label: 'แบ่งหน้าจอ', color: '#dc2626', bg: '#fef2f2', icon: Monitor },
+    fullscreen_exit: { label: 'ออกจากเต็มจอ', color: '#dc2626', bg: '#fef2f2', icon: Monitor, immediate: true },
+    split_screen: { label: 'แบ่งหน้าจอ', color: '#dc2626', bg: '#fef2f2', icon: Monitor, immediate: true },
 };
 
 const POLL_INTERVAL = 5000;
@@ -131,6 +131,14 @@ const CheatMonitor = () => {
 
     const handleSuspend = async (suspend) => {
         if (!selectedStudent) return;
+        if (suspend && studentLogs?.status === 'submitted') {
+            await showAlert({
+                title: 'ไม่สามารถดำเนินการได้',
+                message: 'นักเรียนส่งข้อสอบแล้ว ไม่สามารถระงับการสอบได้',
+                variant: 'warning'
+            });
+            return;
+        }
         const ok = await showConfirm({
             title: suspend ? 'ระงับการสอบ' : 'ปลดระงับการสอบ',
             message: `คุณต้องการ ${suspend ? 'ระงับ' : 'ปลดระงับ'} การสอบของนักเรียนคนนี้ใช่หรือไม่?`,
@@ -335,6 +343,7 @@ const CheatMonitor = () => {
                         <div className="grid grid-cols-1 gap-3">
                             {data?.byStudent?.map(s => {
                                 const isSuspended = s.status === 'suspended';
+                                const isSubmitted = s.status === 'submitted';
                                 return (
                                     <div
                                         key={s._id}
@@ -344,7 +353,9 @@ const CheatMonitor = () => {
                                     >
                                         <div className="flex items-center gap-4">
                                             {/* Avatar or Initials */}
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${isSuspended ? 'bg-red-400' : 'bg-indigo-500'}`}>
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                                                isSuspended ? 'bg-red-500' : isSubmitted ? 'bg-emerald-600' : 'bg-indigo-500'
+                                            }`}>
                                                 {s.studentInfo.firstName.charAt(0)}
                                             </div>
                                             <div>
@@ -356,6 +367,16 @@ const CheatMonitor = () => {
                                                     {isSuspended && (
                                                         <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded flex items-center gap-1 font-bold">
                                                             <Lock size={10} /> ระงับการสอบ
+                                                        </span>
+                                                    )}
+                                                    {isSubmitted && (
+                                                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded flex items-center gap-1 font-medium">
+                                                            <CheckCircle size={10} /> ส่งข้อสอบแล้ว
+                                                        </span>
+                                                    )}
+                                                    {!isSuspended && !isSubmitted && (
+                                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded flex items-center gap-1 font-medium">
+                                                            <Clock size={10} /> กำลังทำข้อสอบ
                                                         </span>
                                                     )}
                                                     {s.suspendCount > 0 && (
@@ -374,7 +395,7 @@ const CheatMonitor = () => {
                                                 <p className="text-xs text-gray-400">เวลาส่ง</p>
                                             </div>
                                             <div className="text-right hidden sm:block">
-                                                <p className="text-sm font-bold text-indigo-600">{s.score} <span className="text-gray-400 font-normal">/ {s.totalPoints}</span></p>
+                                                <p className="text-sm font-bold text-indigo-600">{s.score ?? '-'} <span className="text-gray-400 font-normal">/ {s.totalPoints}</span></p>
                                                 <p className="text-xs text-gray-400">คะแนน</p>
                                             </div>
                                             <div className="text-right">
@@ -385,7 +406,9 @@ const CheatMonitor = () => {
                                                     )}
                                                 </p>
                                                 <p className="text-xs text-gray-400">
-                                                    {data?.maxCheatEvents > 0 ? `เหตุการณ์ (เกณฑ์ ${data.maxCheatEvents})` : `เหตุการณ์ (รวม ${s.totalCount})`}
+                                                    {data?.maxCheatEvents > 0
+                                                        ? (s.totalCount > s.count ? `รอบนี้ (รวม ${s.totalCount})` : `เหตุการณ์ (เกณฑ์ ${data.maxCheatEvents})`)
+                                                        : `เหตุการณ์ (รวม ${s.totalCount})`}
                                                 </p>
                                             </div>
                                             <ChevronRight size={20} className="text-gray-300" />
@@ -441,8 +464,13 @@ const CheatMonitor = () => {
                                                     {formatTime(log.timestamp)}
                                                 </span>
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-0.5">
+                                            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                                                 <span className="font-medium" style={{ color: config.color }}>{config.label}</span>
+                                                {config.immediate && (
+                                                    <span className="px-1.5 py-0.2 bg-red-100 text-red-700 text-[10px] font-bold rounded">
+                                                        ระงับทันที
+                                                    </span>
+                                                )}
                                                 {log.detail && <span className="text-gray-400"> • {log.detail}</span>}
                                             </p>
                                         </div>
@@ -482,9 +510,14 @@ const CheatMonitor = () => {
                                     </p>
                                     <p className="text-xs text-gray-500">
                                         {data?.maxCheatEvents > 0
-                                            ? `เหตุการณ์ (เกณฑ์ระงับ ${data.maxCheatEvents} ครั้ง)`
+                                            ? `รอบปัจจุบัน (เกณฑ์ระงับ ${data.maxCheatEvents} ครั้ง)`
                                             : `เหตุการณ์ (รวม ${studentLogs?.logs?.length || 0})`}
                                     </p>
+                                    {(studentLogs?.logs?.length || 0) > (studentLogs?.unresolvedCount ?? 0) && (
+                                        <p className="text-[11px] text-gray-400 mt-1">
+                                            สะสมทั้งหมด {studentLogs?.logs?.length || 0} ครั้ง
+                                        </p>
+                                    )}
                                 </div>
                                 <div className={`p-4 rounded-xl text-center border ${(studentLogs?.suspendCount || 0) > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}`}>
                                     <p className={`text-3xl font-bold ${(studentLogs?.suspendCount || 0) > 0 ? 'text-amber-700' : 'text-gray-700'}`}>
@@ -495,17 +528,27 @@ const CheatMonitor = () => {
                                 </div>
                                 <div className="bg-indigo-50 p-4 rounded-xl text-center border border-indigo-100">
                                     <p className="text-3xl font-bold text-indigo-600">
-                                        {studentLogs?.score || 0} <span className="text-sm text-gray-500 font-normal">/ {studentLogs?.totalPoints || 0}</span>
+                                        {studentLogs?.score ?? 0} <span className="text-sm text-gray-500 font-normal">/ {studentLogs?.totalPoints || 0}</span>
                                     </p>
                                     <p className="text-xs text-gray-500">คะแนนสอบ</p>
                                 </div>
                                 <div className={`p-4 rounded-xl text-center border-2 ${studentLogs?.status === 'suspended'
-                                    ? 'bg-red-50 border-red-100'
-                                    : 'bg-green-50 border-green-100'
+                                    ? 'bg-red-50 border-red-200'
+                                    : studentLogs?.status === 'submitted'
+                                        ? 'bg-emerald-50 border-emerald-200'
+                                        : 'bg-blue-50 border-blue-200'
                                     }`}>
-                                    <p className={`text-lg font-bold ${studentLogs?.status === 'suspended' ? 'text-red-600' : 'text-green-600'
+                                    <p className={`text-lg font-bold ${studentLogs?.status === 'suspended'
+                                        ? 'text-red-600'
+                                        : studentLogs?.status === 'submitted'
+                                            ? 'text-emerald-700'
+                                            : 'text-blue-700'
                                         }`}>
-                                        {studentLogs?.status === 'suspended' ? 'ถูกระงับสอบ' : 'กำลังสอบ/ปกติ'}
+                                        {studentLogs?.status === 'suspended'
+                                            ? 'ถูกระงับสอบ'
+                                            : studentLogs?.status === 'submitted'
+                                                ? 'ส่งข้อสอบแล้ว'
+                                                : 'กำลังสอบ/ปกติ'}
                                     </p>
                                     <p className="text-xs text-gray-500">สถานะปัจจุบัน</p>
                                 </div>
@@ -538,6 +581,13 @@ const CheatMonitor = () => {
                                     >
                                         <Unlock size={18} /> ปลดล็อกการสอบ
                                     </button>
+                                ) : studentLogs?.status === 'submitted' ? (
+                                    <button
+                                        disabled
+                                        className="w-full py-3 font-bold rounded-xl border bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        <CheckCircle size={18} className="text-gray-400" /> ส่งข้อสอบเรียบร้อยแล้ว
+                                    </button>
                                 ) : (
                                     <button
                                         onClick={() => handleSuspend(true)}
@@ -550,9 +600,13 @@ const CheatMonitor = () => {
                                     </button>
                                 )}
                                 <p className="text-center text-xs text-gray-400 mt-2">
-                                    {sessionId && data?.sessionStatus !== 'active'
-                                        ? "ดูประวัติย้อนหลัง - ไม่สามารถระงับการสอบได้"
-                                        : "เมื่อระงับ นักเรียนจะไม่สามารถทำข้อสอบต่อได้จนกว่าจะปลดล็อก"}
+                                    {studentLogs?.status === 'submitted'
+                                        ? "นักเรียนส่งข้อสอบแล้ว ไม่สามารถระงับการสอบได้"
+                                        : sessionId && data?.sessionStatus !== 'active'
+                                            ? "ดูประวัติย้อนหลัง - ไม่สามารถระงับการสอบได้"
+                                            : studentLogs?.status === 'suspended'
+                                                ? "นักเรียนถูกระงับสอบอยู่ กดปลดล็อกเพื่อให้ทำข้อสอบต่อได้"
+                                                : "เมื่อระงับ นักเรียนจะไม่สามารถทำข้อสอบต่อได้จนกว่าจะปลดล็อก"}
                                 </p>
                             </div>
 
@@ -562,7 +616,7 @@ const CheatMonitor = () => {
                                     onClick={() => setModalTab('logs')}
                                     className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition ${modalTab === 'logs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                                 >
-                                    ประวัติการทุจริต
+                                    ประวัติการทุจริต ({studentLogs?.logs?.length || 0})
                                 </button>
                                 <button
                                     onClick={() => setModalTab('answers')}
@@ -582,14 +636,27 @@ const CheatMonitor = () => {
                                     ) : (
                                         studentLogs.logs.map((log, i) => {
                                             const config = EVENT_CONFIG[log.eventType] || {};
+                                            const isImmediate = config.immediate || log.eventType === 'fullscreen_exit' || log.eventType === 'split_screen';
                                             return (
                                                 <div key={i} className="flex gap-3">
                                                     <div className="flex flex-col items-center">
-                                                        <div className="w-2 h-2 rounded-full bg-gray-300 mt-2" />
+                                                        <div className={`w-2 h-2 rounded-full ${isImmediate ? 'bg-red-500' : 'bg-gray-300'} mt-2`} />
                                                         {i !== (studentLogs.logs.length - 1) && <div className="w-0.5 h-full bg-gray-100 -mb-2" />}
                                                     </div>
                                                     <div className="pb-4">
-                                                        <p className="text-sm font-medium text-gray-900">{config.label || log.eventType}</p>
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <p className="text-sm font-medium text-gray-900">{config.label || log.eventType}</p>
+                                                            {isImmediate && (
+                                                                <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded">
+                                                                    เกณฑ์ระงับทันที
+                                                                </span>
+                                                            )}
+                                                            {log.isResolved && (
+                                                                <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-medium rounded">
+                                                                    เคลียร์แล้ว (รอบก่อนหน้า)
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <p className="text-xs text-gray-500">{formatTime(log.timestamp)}</p>
                                                         {log.detail && (
                                                             <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded mt-1 border border-gray-100">

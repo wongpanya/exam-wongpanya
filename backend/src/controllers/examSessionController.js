@@ -1050,6 +1050,11 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
         throw new Error('Attempt not found');
     }
 
+    if (suspend && attempt.status === 'submitted') {
+        res.status(400);
+        throw new Error('ไม่สามารถระงับการสอบของนักเรียนที่ส่งข้อสอบแล้วได้');
+    }
+
     if (suspend && attempt.status !== 'submitted' && attempt.status !== 'suspended') {
         attempt.status = 'suspended';
         attempt.suspendCount = (attempt.suspendCount || 0) + 1;
