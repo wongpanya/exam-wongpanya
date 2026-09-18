@@ -142,27 +142,20 @@ const normalizeFinalAnswers = (exam, answers) => {
     const answerMap = new Map();
     const answeredAtMap = new Map();
     for (const answer of Array.isArray(answers) ? answers : []) {
-        if (answerMap.has(answer.questionId)) {
-            const error = new Error(`Duplicate answer for question ${answer.questionId}`);
-            error.statusCode = 400;
-            throw error;
-        }
-        answerMap.set(answer.questionId, answer.selectedAnswer || '');
+        if (!answer || !answer.questionId) continue;
+        // Deduplicate: overwrite with latest selected answer
+        answerMap.set(
+            answer.questionId,
+            answer.selectedAnswer !== undefined && answer.selectedAnswer !== null
+                ? String(answer.selectedAnswer)
+                : ''
+        );
         if (answer.answeredAt) {
             answeredAtMap.set(answer.questionId, answer.answeredAt);
         }
     }
 
-    const validIds = new Set(exam.questions.map(question => question.questionId));
-    for (const questionId of answerMap.keys()) {
-        if (!validIds.has(questionId)) {
-            const error = new Error(`Unknown question ${questionId}`);
-            error.statusCode = 400;
-            throw error;
-        }
-    }
-
-    return exam.questions.map(question => ({
+    return (exam.questions || []).map(question => ({
         questionId: question.questionId,
         selectedAnswer: answerMap.get(question.questionId) || '',
         answeredAt: answeredAtMap.get(question.questionId) || null,
@@ -723,21 +716,12 @@ const autoSave = asyncHandler(async (req, res) => {
     }
 
     if (attempt.status === 'submitted') {
-        res.status(400);
-        throw new Error('Exam already submitted');
+        return res.json({ message: 'Exam already submitted', saved: false, status: 'submitted' });
     }
 
     if (attempt.status === 'suspended') {
         res.status(403);
         throw new Error('Cannot save: Exam attempt is suspended');
-    }
-
-    const examData = await Exam.findById(session.exam);
-    const startTime = new Date(session.startedAt).getTime();
-    const durationMs = examData.durationMin * 60 * 1000;
-    if (Date.now() > startTime + durationMs + 30000) {
-        res.status(400);
-        throw new Error('Exam time limit exceeded');
     }
 
     // Record any new choices or changes into answerHistory and update attempt.answers
@@ -772,9 +756,20 @@ const submitExam = asyncHandler(async (req, res) => {
         throw new Error('Attempt not found');
     }
 
+    // Gracefully handle already submitted attempt: return existing score/result
     if (attempt.status === 'submitted') {
-        res.status(400);
-        throw new Error('Already submitted');
+        const gradedAttempt = attempt;
+        const scoreIsFinal = !['pending', 'processing', 'needs-review', 'failed'].includes(gradedAttempt.gradingStatus);
+        return res.json({
+            message: 'Already submitted',
+            score: scoreIsFinal ? gradedAttempt.finalScore : null,
+            totalPoints: gradedAttempt.totalPoints,
+            percentage: scoreIsFinal && gradedAttempt.totalPoints > 0
+                ? Math.round((gradedAttempt.finalScore / gradedAttempt.totalPoints) * 100)
+                : null,
+            gradingStatus: gradedAttempt.gradingStatus,
+            needsHumanReview: gradedAttempt.gradingStatus === 'needs-review',
+        });
     }
 
     if (attempt.status === 'suspended') {
@@ -783,12 +778,6 @@ const submitExam = asyncHandler(async (req, res) => {
     }
 
     const examData = await Exam.findById(session.exam);
-    const startTime = new Date(session.startedAt).getTime();
-    const durationMs = examData.durationMin * 60 * 1000;
-    if (Date.now() > startTime + durationMs + 30000) {
-        res.status(400);
-        throw new Error('Exam time limit exceeded');
-    }
 
     // Record any last-second answer changes before final submission
     recordAnswerChanges(attempt, answers);

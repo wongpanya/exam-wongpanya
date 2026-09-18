@@ -81,7 +81,7 @@ const TakeExam = () => {
     }, []);
 
     // Anti-cheat hook
-    const { cheatCount, isTabHidden, isWindowBlurred, isFullscreen, warnings, resetCheatStatus } = useAntiCheat(
+    const { cheatCount, isTabHidden, isWindowBlurred, isFullscreen, warnings, resetCheatStatus, clearWindowBlur } = useAntiCheat(
         examId, 
         !submitted && !suspended && (isMobile || hasEnteredFullscreen), 
         handleSuspend
@@ -156,6 +156,9 @@ const TakeExam = () => {
                 // Force reload or fetch result if needed, but submitted state usually handles UI
             }
         } catch (err) {
+            if (err.response?.data?.message?.toLowerCase().includes('already submitted')) {
+                setSubmitted(true);
+            }
             console.warn('Auto-save failed:', err.message);
         } finally {
             setSaving(false);
@@ -380,7 +383,22 @@ const TakeExam = () => {
                 exitFullscreen();
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to submit exam');
+            const errorMsg = err.response?.data?.message || 'Failed to submit exam';
+            if (errorMsg.toLowerCase().includes('already submitted') || (err.response?.status === 400 && errorMsg.includes('submitted'))) {
+                setSubmitted(true);
+                localStorage.removeItem(storageKey);
+                localStorage.removeItem(`exam_flags_${examId}`);
+                if (timerRef.current) clearInterval(timerRef.current);
+                if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current);
+                if (!isMobile) exitFullscreen();
+                return;
+            }
+            setError(errorMsg);
+            await showAlert({
+                title: 'ไม่สามารถส่งข้อสอบได้',
+                message: `${errorMsg}\nกรุณาลองกดส่งใหม่อีกครั้ง หรือติดต่ออาจารย์ผู้คุมสอบ`,
+                variant: 'danger',
+            });
         } finally {
             setSubmitting(false);
         }
@@ -648,12 +666,18 @@ const TakeExam = () => {
             )}
 
             {/* Anti-Screen Capture / Lost Focus Overlay */}
-            {(isTabHidden || isWindowBlurred) && !suspended && (
+            {(isTabHidden || isWindowBlurred) && !suspended && !submitting && !showSubmitModal && (
                 <div 
-                    onClick={() => window.focus()}
+                    onClick={() => {
+                        window.focus();
+                        clearWindowBlur?.();
+                    }}
                     className="fixed inset-0 z-50 bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in cursor-pointer select-none"
                 >
-                    <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-sm text-center border border-gray-100 animate-scale-up">
+                    <div 
+                        className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-sm text-center border border-gray-100 animate-scale-up"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
                             <AlertTriangle size={32} />
                         </div>
@@ -661,9 +685,16 @@ const TakeExam = () => {
                         <p className="text-gray-600 text-sm mb-4">
                             ตรวจพบการสลับหน้าต่างหรือเรียกใช้เครื่องมือภายนอก หน้าจอจึงถูกบดบังชั่วคราวเพื่อป้องกันการทุจริตและการจับภาพหน้าจอ
                         </p>
-                        <p className="text-xs text-indigo-600 font-medium bg-indigo-50 py-2.5 px-4 rounded-lg hover:bg-indigo-100 transition">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                window.focus();
+                                clearWindowBlur?.();
+                            }}
+                            className="w-full text-xs text-indigo-600 font-medium bg-indigo-50 py-2.5 px-4 rounded-lg hover:bg-indigo-100 transition cursor-pointer"
+                        >
                             คลิกที่นี่เพื่อกลับมาทำข้อสอบต่อ
-                        </p>
+                        </button>
                     </div>
                 </div>
             )}
@@ -820,7 +851,7 @@ const TakeExam = () => {
             <div 
                 ref={questionsTopRef} 
                 className={`space-y-4 ${suspended ? 'opacity-50 pointer-events-none filter blur-sm' : ''}`}
-                style={{ filter: (isTabHidden || isWindowBlurred) ? 'blur(20px)' : undefined }}
+                style={{ filter: (isTabHidden || isWindowBlurred) && !submitting && !showSubmitModal ? 'blur(20px)' : undefined }}
             >
                 {currentQuestions.map((q, index) => {
                     const globalIndex = (currentPage - 1) * questionsPerPage + index;

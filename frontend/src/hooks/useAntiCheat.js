@@ -176,8 +176,11 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
 
         // --- Window Blur ---
         const handleBlur = () => {
-            setIsWindowBlurred(true);
-            logEvent('blur', 'Window lost focus');
+            // Mobile devices fire blur on virtual keyboard toggle and touch events; skip on mobile
+            if (!isMobile) {
+                setIsWindowBlurred(true);
+                logEvent('blur', 'Window lost focus');
+            }
         };
 
         // --- Window Focus ---
@@ -335,6 +338,8 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         isMobile,
         warnings,
         resetCheatStatus,
+        clearWindowBlur: () => setIsWindowBlurred(false),
+        setIsWindowBlurred,
     };
 };
 

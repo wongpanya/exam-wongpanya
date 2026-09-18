@@ -4,7 +4,7 @@ const aiConfig = require('../config/aiConfig');
 const answerSchema = z.object({
     questionId: z.string().trim().min(1).max(100),
     selectedAnswer: z.string().max(aiConfig.maxAnswerChars).default(''),
-    answeredAt: z.union([z.string(), z.date()]).optional(),
+    answeredAt: z.union([z.string(), z.date()]).nullable().optional(),
 });
 
 const startSessionSchema = z.object({
