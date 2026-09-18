@@ -69,61 +69,80 @@ const safeEmit = (room, event, data) => {
 const normalizeFinalAnswers = (exam, answers) => {
     const answerMap = new Map();
     for (const answer of Array.isArray(answers) ? answers : []) {
-        if (answerMap.has(answer.questionId)) {
-            const error = new Error(`Duplicate answer for question ${answer.questionId}`);
-            error.statusCode = 400;
-            throw error;
-        }
-        answerMap.set(answer.questionId, answer.selectedAnswer || '');
+        if (!answer || !answer.questionId) continue;
+        answerMap.set(
+            answer.questionId,
+            answer.selectedAnswer !== undefined && answer.selectedAnswer !== null
+                ? String(answer.selectedAnswer)
+                : ''
+        );
     }
 
-    const validIds = new Set(exam.questions.map(question => question.questionId));
-    for (const questionId of answerMap.keys()) {
-        if (!validIds.has(questionId)) {
-            const error = new Error(`Unknown question ${questionId}`);
-            error.statusCode = 400;
-            throw error;
-        }
-    }
-
-    return exam.questions.map(question => ({
+    return (exam?.questions || []).map(question => ({
         questionId: question.questionId,
         selectedAnswer: answerMap.get(question.questionId) || '',
     }));
 };
 
 const finishExamSession = async (session, { requestedBy = null } = {}) => {
-    if (!session || session.status === 'ended') return session;
+    if (!session) return session;
 
-    session.status = 'ended';
-    session.endedAt = Date.now();
-    session.activeShortCode = null;
-    session.previousShortCode = null;
-    session.activeQrToken = null;
-    await session.save();
+    if (session.status !== 'ended') {
+        session.status = 'ended';
+        session.endedAt = Date.now();
+        session.activeShortCode = null;
+        session.previousShortCode = null;
+        session.activeQrToken = null;
+        await session.save();
+    }
 
     cheatTracker.clearSession(session._id.toString());
 
-    const inProgressAttempts = await ExamAttempt.find({
+    // Auto-finalize all attempts:
+    // - In-progress attempts: change to 'submitted' + grade + compute score
+    // - Suspended attempts: keep as 'suspended' + grade + compute score (displays 'ถูกระงับ' with score)
+    // - Submitted attempts with null score: grade + compute score
+    const attemptsToProcess = await ExamAttempt.find({
         session: session._id,
-        status: { $in: ['in-progress', 'suspended'] }
+        $or: [
+            { status: 'in-progress' },
+            { status: 'suspended', score: null },
+            { status: 'submitted', score: null },
+        ]
     });
 
-    if (inProgressAttempts.length > 0) {
+    if (attemptsToProcess.length > 0) {
         const examData = await Exam.findById(session.exam);
-        for (const attempt of inProgressAttempts) {
-            attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
-            attempt.status = 'submitted';
-            attempt.submittedAt = Date.now();
-            await attempt.save();
-            await prepareAttemptGrading(attempt._id, {
-                requestedBy: requestedBy || session.createdBy,
-                trigger: 'automatic',
-            });
+        let newlySubmittedCount = 0;
+        for (const attempt of attemptsToProcess) {
+            try {
+                if (examData) {
+                    attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
+                }
+                if (attempt.status === 'in-progress') {
+                    attempt.status = 'submitted';
+                    newlySubmittedCount++;
+                }
+                // Retain 'suspended' status if attempt was suspended (do not change to 'submitted')
+                if (!attempt.submittedAt) {
+                    attempt.submittedAt = Date.now();
+                }
+                await attempt.save();
+                await prepareAttemptGrading(attempt._id, {
+                    requestedBy: requestedBy || session.createdBy,
+                    trigger: 'automatic',
+                });
+            } catch (err) {
+                console.error(`Failed to auto-finalize attempt ${attempt._id}:`, err.message);
+            }
+        }
+        if (newlySubmittedCount > 0) {
+            await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: newlySubmittedCount } });
         }
     }
 
     safeEmit(`session:${session._id}`, 'session-ended', { automatic: Boolean(session.autoStopAt) });
+    safeEmit(`teacher:${session._id}`, 'session-ended', { automatic: Boolean(session.autoStopAt) });
     return session;
 };
 
@@ -216,14 +235,20 @@ const startExam = asyncHandler(async (req, res) => {
 // @route   POST /api/exam-sessions/:examId/stop
 // @access  Private/Teacher
 const stopExam = asyncHandler(async (req, res) => {
-    const session = await ExamSession.findOne({
+    let session = await ExamSession.findOne({
         exam: req.params.examId,
         status: 'active',
     });
 
     if (!session) {
+        session = await ExamSession.findOne({
+            exam: req.params.examId,
+        }).sort({ createdAt: -1 });
+    }
+
+    if (!session) {
         res.status(404);
-        throw new Error('No active session found');
+        throw new Error('No session found');
     }
 
     if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
@@ -235,6 +260,7 @@ const stopExam = asyncHandler(async (req, res) => {
 
     res.json(session);
 });
+
 
 // @desc    Get session status
 // @route   GET /api/exam-sessions/:examId/status
@@ -539,6 +565,17 @@ const getAttempt = asyncHandler(async (req, res) => {
         throw new Error('Attempt not found');
     }
 
+    if (session.status === 'ended' && attempt.status === 'in-progress') {
+        await finishExamSession(session);
+        const refreshed = await ExamAttempt.findById(attempt._id);
+        if (refreshed) {
+            attempt.status = refreshed.status;
+            attempt.score = refreshed.score;
+            attempt.finalScore = refreshed.finalScore;
+            attempt.gradingStatus = refreshed.gradingStatus;
+        }
+    }
+
     // Only return questions if session is active or user submitted? 
     // Usually student needs questions to take exam.
     // If session ended, maybe show results?
@@ -654,12 +691,9 @@ const autoSave = asyncHandler(async (req, res) => {
         throw new Error('Cannot save: Exam attempt is suspended');
     }
 
-    const examData = await Exam.findById(session.exam);
-    const startTime = new Date(session.startedAt).getTime();
-    const durationMs = examData.durationMin * 60 * 1000;
-    if (Date.now() > startTime + durationMs + 30000) {
+    if (session.status === 'ended') {
         res.status(400);
-        throw new Error('Exam time limit exceeded');
+        throw new Error('Exam session has ended');
     }
 
     // Update answers
@@ -698,8 +732,17 @@ const submitExam = asyncHandler(async (req, res) => {
     }
 
     if (attempt.status === 'submitted') {
-        res.status(400);
-        throw new Error('Already submitted');
+        const scoreIsFinal = !['pending', 'processing', 'needs-review', 'failed'].includes(attempt.gradingStatus);
+        return res.json({
+            message: 'Submitted successfully',
+            score: scoreIsFinal ? attempt.finalScore : null,
+            totalPoints: attempt.totalPoints,
+            percentage: scoreIsFinal && attempt.totalPoints > 0
+                ? Math.round((attempt.finalScore / attempt.totalPoints) * 100)
+                : null,
+            gradingStatus: attempt.gradingStatus,
+            needsHumanReview: attempt.gradingStatus === 'needs-review',
+        });
     }
 
     if (attempt.status === 'suspended') {
@@ -708,12 +751,6 @@ const submitExam = asyncHandler(async (req, res) => {
     }
 
     const examData = await Exam.findById(session.exam);
-    const startTime = new Date(session.startedAt).getTime();
-    const durationMs = examData.durationMin * 60 * 1000;
-    if (Date.now() > startTime + durationMs + 30000) {
-        res.status(400);
-        throw new Error('Exam time limit exceeded');
-    }
 
     // Save one canonical entry per question, including an empty essay answer.
     attempt.answers = normalizeFinalAnswers(examData, answers);
@@ -1140,12 +1177,17 @@ const getExamHistory = asyncHandler(async (req, res) => {
 const getSessionAttempts = asyncHandler(async (req, res) => {
     let session;
     if (req.query.sessionId) {
-        session = await ExamSession.findById(req.query.sessionId).lean();
+        session = await ExamSession.findById(req.query.sessionId);
     } else {
         session = await ExamSession.findOne({
             exam: req.params.examId,
             status: 'active'
-        }).lean();
+        });
+        if (!session) {
+            session = await ExamSession.findOne({
+                exam: req.params.examId,
+            }).sort({ createdAt: -1 });
+        }
     }
 
     if (!session) return res.json([]);
@@ -1153,6 +1195,17 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
     if (session.createdBy.toString() !== req.user._id.toString() && req.user.email !== '66025694@up.ac.th') {
         res.status(403);
         throw new Error('Not authorized to view this session');
+    }
+
+    // Auto-finalize any remaining in-progress, unscored, or suspended attempts if session is ended or time expired
+    const examData = await Exam.findById(session.exam);
+    const durationMs = (examData?.durationMin || 0) * 60 * 1000;
+    const isTimeExpired = session.startedAt && (Date.now() >= new Date(session.startedAt).getTime() + durationMs);
+    const isAutoStopExpired = session.autoStopAt && (new Date(session.autoStopAt) <= new Date());
+    const shouldFinalize = session.status === 'ended' || isAutoStopExpired || isTimeExpired;
+
+    if (shouldFinalize) {
+        await finishExamSession(session, { requestedBy: req.user._id });
     }
 
     const attempts = await ExamAttempt.find({ session: session._id })
@@ -1186,6 +1239,10 @@ const getMyAttemptStatus = asyncHandler(async (req, res) => {
 
     if (!session) {
         return res.json({ status: 'unknown' });
+    }
+
+    if (session.status === 'active' && session.autoStopAt && session.autoStopAt <= new Date()) {
+        await finishExamSession(session);
     }
 
     const attempt = await ExamAttempt.findOne({
