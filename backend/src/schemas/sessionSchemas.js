@@ -4,8 +4,7 @@ const aiConfig = require('../config/aiConfig');
 const answerSchema = z.object({
     questionId: z.string().trim().min(1).max(100),
     selectedAnswer: z.string().max(aiConfig.maxAnswerChars).default(''),
-    answeredAt: z.union([z.string(), z.date()]).nullable().optional(),
-});
+}).strict();
 
 const startSessionSchema = z.object({
     qrRotateInterval: z.number().min(5).max(60).default(10),

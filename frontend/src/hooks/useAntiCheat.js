@@ -66,7 +66,6 @@ const VIOLATION_TYPES = new Set([
 const useAntiCheat = (examId, enabled = true, onSuspend) => {
     const [cheatCount, setCheatCount] = useState(0);
     const [isTabHidden, setIsTabHidden] = useState(false);
-    const [isWindowBlurred, setIsWindowBlurred] = useState(false);
     const [warnings, setWarnings] = useState([]);
     const [isMobile] = useState(() => isMobileOrTabletDevice());
     const [isFullscreen, setIsFullscreen] = useState(() => {
@@ -165,27 +164,16 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
         const handleVisibilityChange = () => {
             if (document.hidden) {
                 setIsTabHidden(true);
-                setIsWindowBlurred(true);
                 logEvent('tab_switch', isMobile ? 'App switched / hidden' : 'Tab hidden');
             } else {
                 setIsTabHidden(false);
-                setIsWindowBlurred(false);
                 logEvent('focus', isMobile ? 'App resumed' : 'Tab visible again');
             }
         };
 
         // --- Window Blur ---
         const handleBlur = () => {
-            // Mobile devices fire blur on virtual keyboard toggle and touch events; skip on mobile
-            if (!isMobile) {
-                setIsWindowBlurred(true);
-                logEvent('blur', 'Window lost focus');
-            }
-        };
-
-        // --- Window Focus ---
-        const handleFocus = () => {
-            setIsWindowBlurred(false);
+            logEvent('blur', 'Window lost focus');
         };
 
         // --- Fullscreen Violation (Desktop Only) ---
@@ -259,9 +247,6 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
                     e.stopPropagation();
 
                     if (e.key === 'PrintScreen') {
-                        try {
-                            navigator.clipboard?.writeText('');
-                        } catch {}
                         logEvent('print_screen', 'PrintScreen pressed');
                     } else if (e.key === 'F12') {
                         logEvent('devtools', 'F12 pressed');
@@ -273,24 +258,14 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
             }
         };
 
-        const handleKeyUp = (e) => {
-            if (e.key === 'PrintScreen') {
-                try {
-                    navigator.clipboard?.writeText('');
-                } catch {}
-            }
-        };
-
         // Attach listeners
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('blur', handleBlur);
-        window.addEventListener('focus', handleFocus);
         document.addEventListener('copy', handleCopy);
         document.addEventListener('cut', handleCut);
         document.addEventListener('paste', handlePaste);
         document.addEventListener('contextmenu', handleContextMenu);
         document.addEventListener('keydown', handleKeyDown, true);
-        document.addEventListener('keyup', handleKeyUp, true);
 
         if (!isMobile) {
             document.addEventListener('fullscreenchange', handleFullscreenViolation);
@@ -305,13 +280,11 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
             // Cleanup
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
-            window.removeEventListener('focus', handleFocus);
             document.removeEventListener('copy', handleCopy);
             document.removeEventListener('cut', handleCut);
             document.removeEventListener('paste', handlePaste);
             document.removeEventListener('contextmenu', handleContextMenu);
             document.removeEventListener('keydown', handleKeyDown, true);
-            document.removeEventListener('keyup', handleKeyUp, true);
 
             if (!isMobile) {
                 document.removeEventListener('fullscreenchange', handleFullscreenViolation);
@@ -333,13 +306,10 @@ const useAntiCheat = (examId, enabled = true, onSuspend) => {
     return {
         cheatCount,
         isTabHidden,
-        isWindowBlurred,
         isFullscreen,
         isMobile,
         warnings,
         resetCheatStatus,
-        clearWindowBlur: () => setIsWindowBlurred(false),
-        setIsWindowBlurred,
     };
 };
 
