@@ -455,17 +455,14 @@ const TakeExam = () => {
     const handleManualScoreRefresh = useCallback(async () => {
         setRefreshingScore(true);
         try {
-            const { data } = await api.get(`/exam-sessions/${examId}/attempt`);
-            if (data?.attempt) {
-                const pct = data.attempt.totalPoints > 0 && data.attempt.score !== null
-                    ? Math.round((data.attempt.score / data.attempt.totalPoints) * 100)
-                    : undefined;
+            const { data } = await api.get(`/exam-sessions/${examId}/my-status`);
+            if (data?.score !== undefined || data?.gradingStatus) {
                 setResult({
-                    score: data.attempt.score,
-                    totalPoints: data.attempt.totalPoints,
-                    percentage: pct,
-                    gradingStatus: data.attempt.gradingStatus,
-                    needsHumanReview: data.attempt.gradingStatus === 'needs-review',
+                    score: data.score,
+                    totalPoints: data.totalPoints,
+                    percentage: data.percentage ?? undefined,
+                    gradingStatus: data.gradingStatus,
+                    needsHumanReview: Boolean(data.needsHumanReview),
                 });
             }
         } catch (err) {
@@ -482,23 +479,20 @@ const TakeExam = () => {
 
         const pollInterval = setInterval(async () => {
             try {
-                const { data } = await api.get(`/exam-sessions/${examId}/attempt`);
-                if (data?.attempt) {
-                    const pct = data.attempt.totalPoints > 0 && data.attempt.score !== null
-                        ? Math.round((data.attempt.score / data.attempt.totalPoints) * 100)
-                        : undefined;
+                const { data } = await api.get(`/exam-sessions/${examId}/my-status`);
+                if (data?.gradingStatus && !['pending', 'processing'].includes(data.gradingStatus)) {
                     setResult({
-                        score: data.attempt.score,
-                        totalPoints: data.attempt.totalPoints,
-                        percentage: pct,
-                        gradingStatus: data.attempt.gradingStatus,
-                        needsHumanReview: data.attempt.gradingStatus === 'needs-review',
+                        score: data.score,
+                        totalPoints: data.totalPoints,
+                        percentage: data.percentage ?? undefined,
+                        gradingStatus: data.gradingStatus,
+                        needsHumanReview: Boolean(data.needsHumanReview),
                     });
                 }
             } catch (err) {
                 console.warn('Auto-poll score failed:', err.message);
             }
-        }, 3000);
+        }, 5000);
 
         return () => clearInterval(pollInterval);
     }, [submitted, result?.gradingStatus, examId]);

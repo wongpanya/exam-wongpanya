@@ -12,6 +12,7 @@ const { generateQRToken, parseQRToken, verifyQRToken } = require('../utils/qrTok
 const cheatTracker = require('../utils/cheatTracker');
 const { getIO } = require('../config/socket');
 const { prepareAttemptGrading } = require('../services/grading/gradingService');
+const { wakeGradingWorker } = require('../services/grading/gradingWorker');
 const { examCache } = require('../utils/cache');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
@@ -141,6 +142,7 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
         if (newlySubmittedCount > 0) {
             await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: newlySubmittedCount } });
         }
+        wakeGradingWorker();
     }
 
     safeEmit(`session:${session._id}`, 'session-ended', { automatic: Boolean(session.autoStopAt) });
@@ -765,6 +767,7 @@ const submitExam = asyncHandler(async (req, res) => {
         requestedBy: req.user._id,
         trigger: 'automatic',
     });
+    wakeGradingWorker();
     const gradedAttempt = await ExamAttempt.findById(attempt._id);
 
     // Update session stats
@@ -957,7 +960,9 @@ const getCheatLogs = asyncHandler(async (req, res) => {
     const attempts = await ExamAttempt.find({
         session: session._id,
         student: { $in: studentIds }
-    }).lean();
+    })
+        .select('student status suspendCount score totalPoints startedAt submittedAt')
+        .lean();
 
     // Merge status, score, and suspendCount into byStudent
     const byStudentWithStatus = byStudent.map(s => {
@@ -1255,13 +1260,27 @@ const getMyAttemptStatus = asyncHandler(async (req, res) => {
     const attempt = await ExamAttempt.findOne({
         session: session._id,
         student: req.user._id,
-    }, 'status gradingStatus');
+    }, 'status gradingStatus score finalScore totalPoints');
 
     if (!attempt) {
         return res.json({ status: 'not-started' });
     }
 
-    res.json({ status: attempt.status, gradingStatus: attempt.gradingStatus, sessionStatus: session.status });
+    const scoreIsFinal = !['pending', 'processing', 'needs-review', 'failed'].includes(attempt.gradingStatus);
+    const effectiveScore = scoreIsFinal ? (attempt.finalScore ?? attempt.score) : null;
+    const percentage = scoreIsFinal && attempt.totalPoints > 0 && effectiveScore !== null
+        ? Math.round((effectiveScore / attempt.totalPoints) * 100)
+        : null;
+
+    res.json({
+        status: attempt.status,
+        gradingStatus: attempt.gradingStatus,
+        sessionStatus: session.status,
+        score: effectiveScore,
+        totalPoints: attempt.totalPoints,
+        percentage,
+        needsHumanReview: attempt.gradingStatus === 'needs-review',
+    });
 });
 
 // @desc    Delete an exam session and all related data
@@ -1419,7 +1438,7 @@ setInterval(() => {
     ExamSession.find({ status: 'active', autoStopAt: { $lte: new Date() } })
         .then(sessions => Promise.all(sessions.map(finishExamSession)))
         .catch(error => console.error('Automatic exam session close failed:', error.message));
-}, 10000).unref();
+}, 30000).unref();
 
 module.exports = {
     startExam,

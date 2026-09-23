@@ -79,10 +79,10 @@ const CheatMonitor = () => {
     useEffect(() => {
         fetchLogs();
 
-        // Backup auto-polling every 10 seconds in case Socket.io fails
+        // Backup auto-polling every 25 seconds in case Socket.io fails
         const pollInterval = setInterval(() => {
             fetchLogs();
-        }, 10000);
+        }, 25000);
 
         return () => {
             clearInterval(pollInterval);

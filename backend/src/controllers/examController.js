@@ -275,8 +275,8 @@ const getExams = asyncHandler(async (req, res) => {
         query = { createdBy: req.user._id };
     }
     const exams = await Exam.find(query)
-        .select('-questions.prompt -questions.choices -questions.aiGrading')
-        .populate('category')
+        .select('examId title durationMin category createdBy createdAt updatedAt questions.questionId')
+        .populate('category', 'name isArchived')
         .sort({ createdAt: -1 })
         .lean();
     res.json(exams);
