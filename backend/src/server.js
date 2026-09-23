@@ -23,6 +23,9 @@ connectDB();
 const app = express();
 app.set('trust proxy', 1); // ✅ REQUIRED for Rate Limiter behind Vercel/DigitalOcean Proxy
 
+// Slow-request timing (must be first to measure full handler time)
+app.use(require('./middleware/requestTimer'));
+
 const server = http.createServer(app);
 
 // Socket.io initialization (Phase 2)
@@ -96,10 +99,14 @@ server.listen(PORT, "0.0.0.0", () => {
 const { startGradingWorker, stopGradingWorker } = require('./services/grading/gradingWorker');
 startGradingWorker();
 
+const { startEventLoopMonitor, stopEventLoopMonitor } = require('./utils/eventLoopMonitor');
+startEventLoopMonitor();
+
 // Graceful Shutdown
 const gracefulShutdown = (signal) => {
     console.log(`\n${signal} received. Shutting down gracefully...`);
     stopGradingWorker();
+    stopEventLoopMonitor();
     server.close(() => {
         mongoose.connection.close(false).then(() => {
             console.log('MongoDB connection closed.');

@@ -8,9 +8,11 @@ const parsePoolSize = (name, fallback, { min = 1, max = 50 } = {}) => {
 };
 
 const connectOptions = {
-    // Sized for the 512MB Eco tier by default; raise via env on bigger plans.
-    maxPoolSize: parsePoolSize('MONGODB_MAX_POOL_SIZE', 5),
-    minPoolSize: parsePoolSize('MONGODB_MIN_POOL_SIZE', 1),
+    // Keep headroom for burst traffic (whole class joining/submitting at once):
+    // too small a pool forces connection-checkout queueing under concurrency.
+    // Idle connections cost ~KBs each, so 10 is safe even on the 512MB tier.
+    maxPoolSize: parsePoolSize('MONGODB_MAX_POOL_SIZE', 10),
+    minPoolSize: parsePoolSize('MONGODB_MIN_POOL_SIZE', 2),
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
 };

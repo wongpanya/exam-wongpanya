@@ -928,42 +928,40 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         throw new Error('Not authorized');
     }
 
-    // Get logs
-    const logs = await CheatingLog.find({ session: session._id })
-        .populate('student', 'firstName lastName email')
-        .sort({ timestamp: -1 })
-        .lean();
-
-    // Aggregate summary
-    const summary = await CheatingLog.aggregate([
-        { $match: { session: session._id } },
-        { $group: { _id: '$eventType', count: { $sum: 1 } } }
-    ]);
-
-    // Aggregate by student
-    const byStudent = await CheatingLog.aggregate([
-        { $match: { session: session._id } },
-        {
-            $group: {
-                _id: '$student',
-                totalCount: { $sum: 1 },
-                count: {
-                    $sum: { $cond: [{ $eq: ['$isResolved', true] }, 0, 1] }
+    // Get logs + summaries in parallel (independent queries; saves ~2 DB round-trips)
+    const [logs, summary, byStudent] = await Promise.all([
+        CheatingLog.find({ session: session._id })
+            .populate('student', 'firstName lastName email')
+            .sort({ timestamp: -1 })
+            .lean(),
+        CheatingLog.aggregate([
+            { $match: { session: session._id } },
+            { $group: { _id: '$eventType', count: { $sum: 1 } } }
+        ]),
+        CheatingLog.aggregate([
+            { $match: { session: session._id } },
+            {
+                $group: {
+                    _id: '$student',
+                    totalCount: { $sum: 1 },
+                    count: {
+                        $sum: { $cond: [{ $eq: ['$isResolved', true] }, 0, 1] }
+                    }
                 }
-            }
-        },
-        { $sort: { count: -1 } },
-        { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'studentInfo' } },
-        { $unwind: '$studentInfo' },
-        {
-            $project: {
-                count: 1,
-                totalCount: 1,
-                'studentInfo.firstName': 1,
-                'studentInfo.lastName': 1,
-                'studentInfo.email': 1
-            }
-        },
+            },
+            { $sort: { count: -1 } },
+            { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'studentInfo' } },
+            { $unwind: '$studentInfo' },
+            {
+                $project: {
+                    count: 1,
+                    totalCount: 1,
+                    'studentInfo.firstName': 1,
+                    'studentInfo.lastName': 1,
+                    'studentInfo.email': 1
+                }
+            },
+        ]),
     ]);
 
     // Check suspension status and score for students in the list
