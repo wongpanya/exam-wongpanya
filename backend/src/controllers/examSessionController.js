@@ -112,33 +112,39 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
                 score: null,
             },
         ]
-    });
+    }).select('-answerHistory -choiceOrder -questionOrder');
 
     if (attemptsToProcess.length > 0) {
-        const examData = await Exam.findById(session.exam);
+        const examData = await Exam.findById(session.exam).select('questions.questionId');
         let newlySubmittedCount = 0;
-        await Promise.all(attemptsToProcess.map(async (attempt) => {
-            try {
-                if (examData) {
-                    attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
+        // Process in small batches to cap peak RAM/CPU on the 0.25 vCPU / 512MB tier
+        // instead of finalizing every attempt concurrently at session end.
+        const FINALIZE_BATCH_SIZE = 5;
+        for (let i = 0; i < attemptsToProcess.length; i += FINALIZE_BATCH_SIZE) {
+            const batch = attemptsToProcess.slice(i, i + FINALIZE_BATCH_SIZE);
+            await Promise.all(batch.map(async (attempt) => {
+                try {
+                    if (examData) {
+                        attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
+                    }
+                    if (attempt.status === 'in-progress') {
+                        attempt.status = 'submitted';
+                        newlySubmittedCount++;
+                    }
+                    // Retain 'suspended' status if attempt was suspended (do not change to 'submitted')
+                    if (!attempt.submittedAt) {
+                        attempt.submittedAt = Date.now();
+                    }
+                    await attempt.save();
+                    await prepareAttemptGrading(attempt._id, {
+                        requestedBy: requestedBy || session.createdBy,
+                        trigger: 'automatic',
+                    });
+                } catch (err) {
+                    console.error(`Failed to auto-finalize attempt ${attempt._id}:`, err.message);
                 }
-                if (attempt.status === 'in-progress') {
-                    attempt.status = 'submitted';
-                    newlySubmittedCount++;
-                }
-                // Retain 'suspended' status if attempt was suspended (do not change to 'submitted')
-                if (!attempt.submittedAt) {
-                    attempt.submittedAt = Date.now();
-                }
-                await attempt.save();
-                await prepareAttemptGrading(attempt._id, {
-                    requestedBy: requestedBy || session.createdBy,
-                    trigger: 'automatic',
-                });
-            } catch (err) {
-                console.error(`Failed to auto-finalize attempt ${attempt._id}:`, err.message);
-            }
-        }));
+            }));
+        }
         if (newlySubmittedCount > 0) {
             await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: newlySubmittedCount } });
         }
@@ -678,7 +684,7 @@ const autoSave = asyncHandler(async (req, res) => {
     const attempt = await ExamAttempt.findOne({
         session: session._id,
         student: req.user._id,
-    });
+    }).select('-answerHistory -choiceOrder -questionOrder');
 
     if (!attempt) {
         res.status(404);
@@ -728,7 +734,7 @@ const submitExam = asyncHandler(async (req, res) => {
     const attempt = await ExamAttempt.findOne({
         session: session._id,
         student: req.user._id,
-    });
+    }).select('-answerHistory -choiceOrder -questionOrder');
 
     if (!attempt) {
         res.status(404);
@@ -754,7 +760,7 @@ const submitExam = asyncHandler(async (req, res) => {
         throw new Error('Cannot submit: Exam attempt is suspended');
     }
 
-    const examData = await Exam.findById(session.exam);
+    const examData = await Exam.findById(session.exam).select('questions.questionId');
 
     // Save one canonical entry per question, including an empty essay answer.
     attempt.answers = normalizeFinalAnswers(examData, answers);
@@ -768,7 +774,9 @@ const submitExam = asyncHandler(async (req, res) => {
         trigger: 'automatic',
     });
     wakeGradingWorker();
-    const gradedAttempt = await ExamAttempt.findById(attempt._id);
+    const gradedAttempt = await ExamAttempt.findById(attempt._id)
+        .select('score finalScore totalPoints gradingStatus')
+        .lean();
 
     // Update session stats
     await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: 1 } });
@@ -807,11 +815,11 @@ const logCheatEvent = asyncHandler(async (req, res) => {
         throw new Error('Session not found');
     }
 
-    // Optionally check if attempt exists
-    const attempt = await ExamAttempt.findOne({
+    // Optionally check if attempt exists (result unused; fetch only the id)
+    await ExamAttempt.findOne({
         session: session._id,
         student: req.user._id, // Assuming protected route implies user
-    });
+    }).select('_id').lean();
 
     const log = await CheatingLog.create({
         exam: session.exam,
@@ -863,7 +871,7 @@ const logCheatEvent = asyncHandler(async (req, res) => {
             { session: session._id, student: req.user._id, status: { $ne: 'submitted', $ne: 'suspended' } },
             { status: 'suspended', $inc: { suspendCount: 1 } },
             { new: true }
-        );
+        ).select('suspendCount').lean();
         if (updatedAttempt) {
             suspendStatus = 'suspended';
             safeEmit(`session:${session._id}`, 'student-suspended', {
@@ -875,7 +883,10 @@ const logCheatEvent = asyncHandler(async (req, res) => {
                 suspendCount: updatedAttempt.suspendCount
             });
         } else {
-            const existingAttempt = await ExamAttempt.findOne({ session: session._id, student: req.user._id });
+            const existingAttempt = await ExamAttempt.findOne(
+                { session: session._id, student: req.user._id },
+                'status'
+            ).lean();
             if (existingAttempt && existingAttempt.status === 'suspended') {
                 suspendStatus = 'suspended';
             }
@@ -1399,7 +1410,7 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
             { session: session._id, student: req.user._id, status: { $ne: 'submitted', $ne: 'suspended' } },
             { status: 'suspended', $inc: { suspendCount: 1 } },
             { new: true }
-        );
+        ).select('suspendCount').lean();
         if (updatedAttempt) {
             suspendStatus = 'suspended';
             safeEmit(`session:${session._id}`, 'student-suspended', {
@@ -1411,7 +1422,10 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
                 suspendCount: updatedAttempt.suspendCount
             });
         } else {
-            const existingAttempt = await ExamAttempt.findOne({ session: session._id, student: req.user._id });
+            const existingAttempt = await ExamAttempt.findOne(
+                { session: session._id, student: req.user._id },
+                'status'
+            ).lean();
             if (existingAttempt && existingAttempt.status === 'suspended') {
                 suspendStatus = 'suspended';
             }

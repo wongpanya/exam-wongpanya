@@ -1,9 +1,16 @@
 const dns = require('node:dns');
 const mongoose = require('mongoose');
 
+const parsePoolSize = (name, fallback, { min = 1, max = 50 } = {}) => {
+    const value = Number.parseInt(process.env[name], 10);
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(max, Math.max(min, value));
+};
+
 const connectOptions = {
-    maxPoolSize: 10, // Optimized for 1GB RAM ($10 plan)
-    minPoolSize: 2,
+    // Sized for the 512MB Eco tier by default; raise via env on bigger plans.
+    maxPoolSize: parsePoolSize('MONGODB_MAX_POOL_SIZE', 5),
+    minPoolSize: parsePoolSize('MONGODB_MIN_POOL_SIZE', 1),
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
 };

@@ -84,7 +84,7 @@ const StudentTakeTestExam = () => {
         };
 
         pollStatus();
-        const interval = setInterval(pollStatus, 2500);
+        const interval = setInterval(pollStatus, 5000);
         return () => clearInterval(interval);
     }, [submittedAttemptId, attemptData?.gradingStatus, sessionId]);
 
