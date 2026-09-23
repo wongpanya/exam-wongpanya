@@ -39,6 +39,7 @@ const TakeExam = () => {
     const [submitted, setSubmitted] = useState(false);
     const [suspended, setSuspended] = useState(false);
     const [checkingStatus, setCheckingStatus] = useState(false);
+    const [refreshingScore, setRefreshingScore] = useState(false);
     const [result, setResult] = useState(null);
     const [timeLeft, setTimeLeft] = useState(null);
     const [lastSaved, setLastSaved] = useState(null);
@@ -205,9 +206,13 @@ const TakeExam = () => {
 
                 if (data.attempt.status === 'submitted') {
                     setSubmitted(true);
+                    const pct = data.attempt.totalPoints > 0 && data.attempt.score !== null
+                        ? Math.round((data.attempt.score / data.attempt.totalPoints) * 100)
+                        : undefined;
                     setResult({
                         score: data.attempt.score,
                         totalPoints: data.attempt.totalPoints,
+                        percentage: pct,
                         gradingStatus: data.attempt.gradingStatus,
                     });
                     localStorage.removeItem(storageKey);
@@ -447,6 +452,57 @@ const TakeExam = () => {
         };
     }, [sessionInfo, submitted, suspended, checkStatus]);
 
+    const handleManualScoreRefresh = useCallback(async () => {
+        setRefreshingScore(true);
+        try {
+            const { data } = await api.get(`/exam-sessions/${examId}/attempt`);
+            if (data?.attempt) {
+                const pct = data.attempt.totalPoints > 0 && data.attempt.score !== null
+                    ? Math.round((data.attempt.score / data.attempt.totalPoints) * 100)
+                    : undefined;
+                setResult({
+                    score: data.attempt.score,
+                    totalPoints: data.attempt.totalPoints,
+                    percentage: pct,
+                    gradingStatus: data.attempt.gradingStatus,
+                    needsHumanReview: data.attempt.gradingStatus === 'needs-review',
+                });
+            }
+        } catch (err) {
+            console.warn('Manual refresh score failed:', err.message);
+        } finally {
+            setRefreshingScore(false);
+        }
+    }, [examId]);
+
+    // Auto-poll grading results for subjective questions until grading completes or reaches needs-review
+    useEffect(() => {
+        if (!submitted || !result) return;
+        if (!['pending', 'processing'].includes(result.gradingStatus)) return;
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const { data } = await api.get(`/exam-sessions/${examId}/attempt`);
+                if (data?.attempt) {
+                    const pct = data.attempt.totalPoints > 0 && data.attempt.score !== null
+                        ? Math.round((data.attempt.score / data.attempt.totalPoints) * 100)
+                        : undefined;
+                    setResult({
+                        score: data.attempt.score,
+                        totalPoints: data.attempt.totalPoints,
+                        percentage: pct,
+                        gradingStatus: data.attempt.gradingStatus,
+                        needsHumanReview: data.attempt.gradingStatus === 'needs-review',
+                    });
+                }
+            } catch (err) {
+                console.warn('Auto-poll score failed:', err.message);
+            }
+        }, 3000);
+
+        return () => clearInterval(pollInterval);
+    }, [submitted, result?.gradingStatus, examId]);
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -482,17 +538,33 @@ const TakeExam = () => {
 
                     <div className="bg-gray-50 rounded-xl p-6 mb-6">
                         {awaitingGrade && (
-                            <div>
-                                <Clock className="mx-auto text-indigo-500 mb-2" size={32} />
-                                <p className="font-semibold text-gray-900">กำลังตรวจคำตอบอัตนัย</p>
-                                <p className="text-sm text-gray-500 mt-1">ระบบรับคำตอบแล้ว คะแนนจะแสดงเมื่อการตรวจเสร็จ</p>
+                            <div className="space-y-3">
+                                <Clock className="mx-auto text-indigo-500 mb-2 animate-pulse" size={32} />
+                                <p className="font-semibold text-gray-900">กำลังตรวจคำตอบอัตนัย...</p>
+                                <p className="text-sm text-gray-500">ระบบรับคำตอบแล้ว คะแนนจะแสดงโดยอัตโนมัติเมื่อการตรวจเสร็จสิ้น</p>
+                                <button
+                                    onClick={handleManualScoreRefresh}
+                                    disabled={refreshingScore}
+                                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 rounded-lg transition cursor-pointer"
+                                >
+                                    <RefreshCw size={14} className={refreshingScore ? 'animate-spin' : ''} />
+                                    {refreshingScore ? 'กำลังตรวจสอบ...' : 'รีเฟรชคะแนน'}
+                                </button>
                             </div>
                         )}
                         {awaitingReview && (
-                            <div>
+                            <div className="space-y-3">
                                 <Shield className="mx-auto text-amber-500 mb-2" size={32} />
                                 <p className="font-semibold text-gray-900">รออาจารย์ตรวจยืนยัน</p>
-                                <p className="text-sm text-gray-500 mt-1">ระบบจะยังไม่แสดงคะแนนจนกว่าจะตรวจยืนยันเรียบร้อย</p>
+                                <p className="text-sm text-gray-500">ระบบจะยังไม่แสดงคะแนนจนกว่าอาจารย์จะตรวจยืนยันเรียบร้อย</p>
+                                <button
+                                    onClick={handleManualScoreRefresh}
+                                    disabled={refreshingScore}
+                                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 rounded-lg transition cursor-pointer"
+                                >
+                                    <RefreshCw size={14} className={refreshingScore ? 'animate-spin' : ''} />
+                                    {refreshingScore ? 'กำลังตรวจสอบ...' : 'ตรวจสอบสถานะอีกครั้ง'}
+                                </button>
                             </div>
                         )}
                         {gradingFailed && (
@@ -504,22 +576,23 @@ const TakeExam = () => {
                         )}
                         {showFinalScore && (
                             <>
-                        <p className="text-4xl font-bold text-indigo-600">
-                            {result.score} / {result.totalPoints}
-                        </p>
-                        <p className="text-sm text-gray-500 mt-1">คะแนนที่ได้</p>
-                        {result.percentage !== undefined && (
-                            <div className="mt-3">
-                                <div className="w-full bg-gray-200 rounded-full h-3">
-                                    <div
-                                        className={`h-3 rounded-full transition-all ${result.percentage >= 60 ? 'bg-green-50' : 'bg-red-500'
-                                            }`}
-                                        style={{ width: `${result.percentage}%` }}
-                                    />
-                                </div>
-                                <p className="text-sm text-gray-500 mt-1">{result.percentage}%</p>
-                            </div>
-                        )}
+                                <p className="text-4xl font-bold text-indigo-600">
+                                    {result.score} / {result.totalPoints}
+                                </p>
+                                <p className="text-sm text-gray-500 mt-1">คะแนนที่ได้</p>
+                                {result.percentage !== undefined && (
+                                    <div className="mt-3">
+                                        <div className="w-full bg-gray-200 rounded-full h-3">
+                                            <div
+                                                className={`h-3 rounded-full transition-all ${
+                                                    result.percentage >= 60 ? 'bg-green-600' : 'bg-red-500'
+                                                }`}
+                                                style={{ width: `${result.percentage}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-sm text-gray-500 mt-1">{result.percentage}%</p>
+                                    </div>
+                                )}
                             </>
                         )}
                     </div>

@@ -217,9 +217,9 @@ const exportStudentsCsv = asyncHandler(async (req, res) => {
 // @access  Private
 const getStudentHistory = asyncHandler(async (req, res) => {
     const attempts = await ExamAttempt.find({ student: req.user._id })
-        .select('-answers -aiScore -teacherScore -objectiveScore')
+        .select('-answers -answerHistory -choiceOrder -questionOrder -aiScore -teacherScore -objectiveScore')
         .populate('exam', 'title durationMin')
-        .populate('session', 'status startTime endTime')
+        .populate('session', 'status startedAt endedAt')
         .sort({ createdAt: -1 });
         
     res.json(attempts.map((attempt) => {

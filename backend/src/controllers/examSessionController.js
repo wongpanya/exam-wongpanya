@@ -100,21 +100,23 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
 
     // Auto-finalize all attempts:
     // - In-progress attempts: change to 'submitted' + grade + compute score
-    // - Suspended attempts: keep as 'suspended' + grade + compute score (displays 'ถูกระงับ' with score)
-    // - Submitted attempts with null score: grade + compute score
+    // - Suspended or submitted attempts that have never been prepared for grading (gradingStatus is missing or not-required with null score)
     const attemptsToProcess = await ExamAttempt.find({
         session: session._id,
         $or: [
             { status: 'in-progress' },
-            { status: 'suspended', score: null },
-            { status: 'submitted', score: null },
+            {
+                status: { $in: ['suspended', 'submitted'] },
+                gradingStatus: { $in: [null, undefined] },
+                score: null,
+            },
         ]
     });
 
     if (attemptsToProcess.length > 0) {
         const examData = await Exam.findById(session.exam);
         let newlySubmittedCount = 0;
-        for (const attempt of attemptsToProcess) {
+        await Promise.all(attemptsToProcess.map(async (attempt) => {
             try {
                 if (examData) {
                     attempt.answers = normalizeFinalAnswers(examData, attempt.answers);
@@ -135,7 +137,7 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
             } catch (err) {
                 console.error(`Failed to auto-finalize attempt ${attempt._id}:`, err.message);
             }
-        }
+        }));
         if (newlySubmittedCount > 0) {
             await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: newlySubmittedCount } });
         }
@@ -1197,19 +1199,24 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
         throw new Error('Not authorized to view this session');
     }
 
-    // Auto-finalize any remaining in-progress, unscored, or suspended attempts if session is ended or time expired
+    // Auto-finalize any remaining in-progress attempts if session is active and time expired, or if ended with in-progress attempts
     const examData = await Exam.findById(session.exam);
     const durationMs = (examData?.durationMin || 0) * 60 * 1000;
     const isTimeExpired = session.startedAt && (Date.now() >= new Date(session.startedAt).getTime() + durationMs);
     const isAutoStopExpired = session.autoStopAt && (new Date(session.autoStopAt) <= new Date());
-    const shouldFinalize = session.status === 'ended' || isAutoStopExpired || isTimeExpired;
 
-    if (shouldFinalize) {
+    if (session.status === 'active' && (isAutoStopExpired || isTimeExpired)) {
         await finishExamSession(session, { requestedBy: req.user._id });
+    } else if (session.status === 'ended') {
+        const hasUnfinalized = await ExamAttempt.exists({ session: session._id, status: 'in-progress' });
+        if (hasUnfinalized) {
+            await finishExamSession(session, { requestedBy: req.user._id });
+        }
     }
 
     const attempts = await ExamAttempt.find({ session: session._id })
-        .populate('student', 'firstName lastName email')
+        .select('-answerHistory -choiceOrder -questionOrder')
+        .populate('student', 'firstName lastName email studentId')
         .lean();
 
     const gradingResults = await GradingResult.find({
