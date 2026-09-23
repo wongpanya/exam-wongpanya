@@ -270,6 +270,13 @@ const createExam = asyncHandler(async (req, res) => {
 // @route   GET /api/exams
 // @access  Private/Teacher
 const getExams = asyncHandler(async (req, res) => {
+    // Per-teacher list cache: this endpoint re-fetches ~40KB over a ~4KB/s
+    // DB link on every page load. Key starts with 'exam_' so the existing
+    // delPattern('exam_') in create/update/delete invalidates it.
+    const cacheKey = `exam_list_${req.user.email === '66025694@up.ac.th' ? 'admin' : req.user._id}`;
+    const cached = examCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     let query = {};
     if (req.user.email !== '66025694@up.ac.th') {
         query = { createdBy: req.user._id };
@@ -279,6 +286,7 @@ const getExams = asyncHandler(async (req, res) => {
         .populate('category', 'name isArchived')
         .sort({ createdAt: -1 })
         .lean();
+    examCache.set(cacheKey, exams, 60);
     res.json(exams);
 });
 
