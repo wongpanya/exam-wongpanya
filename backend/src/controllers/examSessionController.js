@@ -14,6 +14,7 @@ const { getIO } = require('../config/socket');
 const { prepareAttemptGrading } = require('../services/grading/gradingService');
 const { wakeGradingWorker } = require('../services/grading/gradingWorker');
 const { examCache } = require('../utils/cache');
+const { getLatestSession, invalidateSessionCache } = require('../utils/sessionCache');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
 
@@ -88,6 +89,10 @@ const normalizeFinalAnswers = (exam, answers) => {
 const finishExamSession = async (session, { requestedBy = null } = {}) => {
     if (!session) return session;
 
+    // Re-fetch a live document: callers may pass a cached read-only snapshot.
+    session = await ExamSession.findById(session._id);
+    if (!session) return session;
+
     if (session.status !== 'ended') {
         session.status = 'ended';
         session.endedAt = Date.now();
@@ -95,6 +100,7 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
         session.previousShortCode = null;
         session.activeQrToken = null;
         await session.save();
+        invalidateSessionCache(session.exam);
     }
 
     cheatTracker.clearSession(session._id.toString());
@@ -237,6 +243,7 @@ const startExam = asyncHandler(async (req, res) => {
         cheatConfig: cheatConfig && Object.keys(cheatConfig).length > 0 ? cheatConfig : defaultCheatConfig,
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
     });
+    invalidateSessionCache(exam._id);
 
     res.status(201).json(session);
 });
@@ -251,9 +258,7 @@ const stopExam = asyncHandler(async (req, res) => {
     });
 
     if (!session) {
-        session = await ExamSession.findOne({
-            exam: req.params.examId,
-        }).sort({ createdAt: -1 });
+        session = await getLatestSession(req.params.examId);
     }
 
     if (!session) {
@@ -266,7 +271,7 @@ const stopExam = asyncHandler(async (req, res) => {
         throw new Error('Not authorized');
     }
 
-    await finishExamSession(session, { requestedBy: req.user._id });
+    session = await finishExamSession(session, { requestedBy: req.user._id });
 
     res.json(session);
 });
@@ -276,16 +281,14 @@ const stopExam = asyncHandler(async (req, res) => {
 // @route   GET /api/exam-sessions/:examId/status
 // @access  Private (Teacher/Student)
 const getSessionStatus = asyncHandler(async (req, res) => {
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    let session = await getLatestSession(req.params.examId);
 
     if (!session) {
         return res.json({ status: 'idle' });
     }
 
     if (session.status === 'active' && session.autoStopAt && session.autoStopAt <= new Date()) {
-        await finishExamSession(session);
+        session = await finishExamSession(session);
     }
 
     res.json(session);
@@ -295,7 +298,7 @@ const getSessionStatus = asyncHandler(async (req, res) => {
 // @route   GET /api/exam-sessions/:examId/qr
 // @access  Private/Teacher
 const getQRToken = asyncHandler(async (req, res) => {
-    const session = await ExamSession.findOne({
+    let session = await ExamSession.findOne({
         exam: req.params.examId,
         status: 'active',
     });
@@ -306,7 +309,7 @@ const getQRToken = asyncHandler(async (req, res) => {
     }
 
     if (session.autoStopAt && session.autoStopAt <= new Date()) {
-        await finishExamSession(session);
+        session = await finishExamSession(session);
         res.status(400);
         throw new Error('Exam session has ended');
     }
@@ -556,9 +559,7 @@ const getAttempt = asyncHandler(async (req, res) => {
     // Or if checking history, maybe verify status
 
     // Find latest session for this exam
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    let session = await getLatestSession(req.params.examId);
 
     if (!session) {
         res.status(404);
@@ -576,7 +577,7 @@ const getAttempt = asyncHandler(async (req, res) => {
     }
 
     if (session.status === 'ended' && attempt.status === 'in-progress') {
-        await finishExamSession(session);
+        session = await finishExamSession(session);
         const refreshed = await ExamAttempt.findById(attempt._id);
         if (refreshed) {
             attempt.status = refreshed.status;
@@ -672,9 +673,7 @@ const getAttempt = asyncHandler(async (req, res) => {
 const autoSave = asyncHandler(async (req, res) => {
     const { answers } = req.body; // Array of { questionId, answer }
 
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    const session = await getLatestSession(req.params.examId);
 
     if (!session) {
         res.status(404);
@@ -722,9 +721,7 @@ const autoSave = asyncHandler(async (req, res) => {
 const submitExam = asyncHandler(async (req, res) => {
     const { answers } = req.body;
 
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    const session = await getLatestSession(req.params.examId);
 
     if (!session) {
         res.status(404);
@@ -806,9 +803,7 @@ const submitExam = asyncHandler(async (req, res) => {
 const logCheatEvent = asyncHandler(async (req, res) => {
     const { eventType, detail } = req.body;
 
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    const session = await getLatestSession(req.params.examId);
 
     if (!session) {
         res.status(404);
@@ -913,9 +908,7 @@ const getCheatLogs = asyncHandler(async (req, res) => {
     if (req.query.sessionId) {
         session = await ExamSession.findById(req.query.sessionId);
     } else {
-        session = await ExamSession.findOne({
-            exam: req.params.examId,
-        }).sort({ createdAt: -1 });
+        session = await getLatestSession(req.params.examId);
     }
 
     if (!session) {
@@ -1009,9 +1002,7 @@ const getStudentCheatLogs = asyncHandler(async (req, res) => {
     if (req.query.sessionId) {
         session = await ExamSession.findById(req.query.sessionId);
     } else {
-        session = await ExamSession.findOne({
-            exam: req.params.examId,
-        }).sort({ createdAt: -1 });
+        session = await getLatestSession(req.params.examId);
     }
 
     if (!session) {
@@ -1079,9 +1070,7 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
 
     // Support specific session? Usually active session
     // For now find latest
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    const session = await getLatestSession(req.params.examId);
 
     if (!session) {
         res.status(404);
@@ -1200,9 +1189,7 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
             status: 'active'
         });
         if (!session) {
-            session = await ExamSession.findOne({
-                exam: req.params.examId,
-            }).sort({ createdAt: -1 });
+            session = await getLatestSession(req.params.examId);
         }
     }
 
@@ -1220,11 +1207,11 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
     const isAutoStopExpired = session.autoStopAt && (new Date(session.autoStopAt) <= new Date());
 
     if (session.status === 'active' && (isAutoStopExpired || isTimeExpired)) {
-        await finishExamSession(session, { requestedBy: req.user._id });
+        session = await finishExamSession(session, { requestedBy: req.user._id });
     } else if (session.status === 'ended') {
         const hasUnfinalized = await ExamAttempt.exists({ session: session._id, status: 'in-progress' });
         if (hasUnfinalized) {
-            await finishExamSession(session, { requestedBy: req.user._id });
+            session = await finishExamSession(session, { requestedBy: req.user._id });
         }
     }
 
@@ -1254,16 +1241,14 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
 // @access  Private/Student
 const getMyAttemptStatus = asyncHandler(async (req, res) => {
     // Find active or latest session
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    let session = await getLatestSession(req.params.examId);
 
     if (!session) {
         return res.json({ status: 'unknown' });
     }
 
     if (session.status === 'active' && session.autoStopAt && session.autoStopAt <= new Date()) {
-        await finishExamSession(session);
+        session = await finishExamSession(session);
     }
 
     const attempt = await ExamAttempt.findOne({
@@ -1325,6 +1310,7 @@ const deleteSession = asyncHandler(async (req, res) => {
 
     // Delete session
     await session.deleteOne();
+    invalidateSessionCache(session.exam);
 
     res.json({ message: 'Session deleted successfully' });
 });
@@ -1342,9 +1328,7 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
     // Cap batch size to prevent abuse
     const batch = events.slice(0, 50);
 
-    const session = await ExamSession.findOne({
-        exam: req.params.examId,
-    }).sort({ createdAt: -1 });
+    const session = await getLatestSession(req.params.examId);
 
     if (!session) {
         res.status(404);

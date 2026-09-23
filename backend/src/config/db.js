@@ -15,6 +15,9 @@ const connectOptions = {
     minPoolSize: parsePoolSize('MONGODB_MIN_POOL_SIZE', 2),
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
+    // Force IPv4: broken/absent IPv6 routes make every new connection stall
+    // for seconds before falling back. Zero cost when IPv6 already works.
+    family: 4,
 };
 
 const isSrvDnsError = (error) => {

@@ -57,9 +57,10 @@ app.use(express.json({ limit: "2mb" }));
 
 // ✅ Health check for DigitalOcean (excluded from rate limiting)
 app.get("/api/health", (req, res) => {
-    res.json({ 
-        ok: true, 
+    res.json({
+        ok: true,
         time: new Date().toISOString(),
+        buildId: require('./buildId'),
         dbConnection: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     });
 });
