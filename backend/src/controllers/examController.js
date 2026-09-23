@@ -402,7 +402,12 @@ const getDistinctCategories = asyncHandler(async (req, res) => {
         query.isArchived = { $ne: true };
     }
 
+    const cacheKey = `cat_list_${req.user.email === '66025694@up.ac.th' ? 'admin' : req.user._id}_${showArchived || 'default'}`;
+    const cached = categoryCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     const categories = await Category.find(query).sort({ name: 1 }).lean();
+    categoryCache.set(cacheKey, categories, 60);
     res.json(categories);
 });
 
@@ -424,6 +429,7 @@ const createCategory = asyncHandler(async (req, res) => {
         category = await Category.create({ name: trimmedName, createdBy: req.user._id });
     }
 
+    categoryCache.delPattern('cat_list_');
     res.status(201).json(category);
 });
 
@@ -445,6 +451,7 @@ const deleteCategory = asyncHandler(async (req, res) => {
     await Exam.updateMany({ category: category._id }, { category: null });
     
     await category.deleteOne();
+    categoryCache.delPattern('cat_list_');
     res.json({ message: 'Category deleted' });
 });
 
@@ -680,7 +687,7 @@ const updateCategory = asyncHandler(async (req, res) => {
 
     category.name = name.trim();
     const updatedCategory = await category.save();
-
+    categoryCache.delPattern('cat_list_');
     res.json(updatedCategory);
 });
 
@@ -700,6 +707,7 @@ const archiveCategory = asyncHandler(async (req, res) => {
     
     category.isArchived = true;
     await category.save();
+    categoryCache.delPattern('cat_list_');
     res.json({ message: 'Category archived successfully', category });
 });
 
@@ -719,6 +727,7 @@ const restoreCategory = asyncHandler(async (req, res) => {
     
     category.isArchived = false;
     await category.save();
+    categoryCache.delPattern('cat_list_');
     res.json({ message: 'Category restored successfully', category });
 });
 

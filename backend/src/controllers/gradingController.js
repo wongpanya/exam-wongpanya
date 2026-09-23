@@ -5,6 +5,7 @@ const GradingResult = require('../models/gradingResultModel');
 const GradingRun = require('../models/gradingRunModel');
 const GradingReviewLog = require('../models/gradingReviewLogModel');
 const withTransaction = require('../utils/withTransaction');
+const { attemptsCache } = require('../utils/cache');
 const { canManageExam } = require('../middleware/gradingAuthorization');
 const { isAiQuestion, recalculateAttemptScores } = require('../services/grading/attemptScoreService');
 const {
@@ -292,6 +293,7 @@ const review = asyncHandler(async (req, res) => {
         return result;
     });
 
+    attemptsCache.flush();
     res.json(updated);
 });
 

@@ -52,12 +52,18 @@ class MemoryCache {
     }
 }
 
-// Singletons for exams and categories
+// Singletons for exams, categories, attempts, cheat logs, and history
 const examCache = new MemoryCache(90, 300); // 90 seconds TTL for exam lookups
 const categoryCache = new MemoryCache(120, 100); // 2 minutes TTL for categories
+const attemptsCache = new MemoryCache(10, 200); // 10 seconds TTL for attempts
+const cheatLogCache = new MemoryCache(10, 200); // 10 seconds TTL for cheat logs
+const historyCache = new MemoryCache(60, 500); // 60 seconds TTL for history
 
 module.exports = {
     MemoryCache,
     examCache,
     categoryCache,
+    attemptsCache,
+    cheatLogCache,
+    historyCache,
 };

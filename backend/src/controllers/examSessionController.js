@@ -13,7 +13,7 @@ const cheatTracker = require('../utils/cheatTracker');
 const { getIO } = require('../config/socket');
 const { prepareAttemptGrading } = require('../services/grading/gradingService');
 const { wakeGradingWorker } = require('../services/grading/gradingWorker');
-const { examCache } = require('../utils/cache');
+const { examCache, attemptsCache, cheatLogCache, historyCache } = require('../utils/cache');
 const { getLatestSession, invalidateSessionCache } = require('../utils/sessionCache');
 
 const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr-secret-key';
@@ -101,6 +101,9 @@ const finishExamSession = async (session, { requestedBy = null } = {}) => {
         session.activeQrToken = null;
         await session.save();
         invalidateSessionCache(session.exam);
+        historyCache.del('exam_history_' + session.exam);
+        attemptsCache.del('attempts_' + session._id);
+        cheatLogCache.del('cheat_logs_' + session._id);
     }
 
     cheatTracker.clearSession(session._id.toString());
@@ -244,6 +247,9 @@ const startExam = asyncHandler(async (req, res) => {
         maxCheatEvents: maxCheatEvents !== undefined ? maxCheatEvents : 1,
     });
     invalidateSessionCache(exam._id);
+    historyCache.del('exam_history_' + exam._id);
+    attemptsCache.del('attempts_' + session._id);
+    cheatLogCache.del('cheat_logs_' + session._id);
 
     res.status(201).json(session);
 });
@@ -777,6 +783,8 @@ const submitExam = asyncHandler(async (req, res) => {
 
     // Update session stats
     await ExamSession.findByIdAndUpdate(session._id, { $inc: { submittedCount: 1 } });
+    attemptsCache.del('attempts_' + session._id);
+    historyCache.del('student_history_' + req.user._id);
 
     safeEmit(`teacher:${session._id}`, 'student-submitted', {
         studentId: req.user._id.toString(),
@@ -896,6 +904,7 @@ const logCheatEvent = asyncHandler(async (req, res) => {
         suspendStatus,
     });
 
+    cheatLogCache.del('cheat_logs_' + session._id);
     res.status(201).json({ ...log.toObject(), suspendStatus });
 });
 
@@ -920,6 +929,10 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         res.status(403);
         throw new Error('Not authorized');
     }
+
+    const cacheKey = `cheat_logs_${session._id}`;
+    const cached = cheatLogCache.get(cacheKey);
+    if (cached) return res.json(cached);
 
     // Get logs + summaries in parallel (independent queries; saves ~2 DB round-trips)
     const [logs, summary, byStudent] = await Promise.all([
@@ -981,7 +994,7 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         };
     });
 
-    res.json({
+    const responsePayload = {
         logs,
         summary,
         byStudent: byStudentWithStatus,
@@ -990,7 +1003,9 @@ const getCheatLogs = asyncHandler(async (req, res) => {
         session: session._id,
         maxCheatEvents: session.maxCheatEvents !== undefined && session.maxCheatEvents !== null ? session.maxCheatEvents : 1,
         cheatConfig: session.cheatConfig,
-    });
+    };
+    cheatLogCache.set(cacheKey, responsePayload, session.status === 'ended' ? 60 : 8);
+    res.json(responsePayload);
 });
 
 // @desc    Get student cheat logs
@@ -1122,6 +1137,8 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
     }
 
     await attempt.save();
+    attemptsCache.del('attempts_' + session._id);
+    cheatLogCache.del('cheat_logs_' + session._id);
 
     res.json({
         success: true,
@@ -1134,6 +1151,10 @@ const toggleStudentSuspension = asyncHandler(async (req, res) => {
 // @route   GET /api/exam-sessions/:examId/history
 // @access  Private/Teacher
 const getExamHistory = asyncHandler(async (req, res) => {
+    const cacheKey = `exam_history_${req.params.examId}`;
+    const cached = historyCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     const sessions = await ExamSession.find({ exam: req.params.examId }).sort({ startedAt: -1 }).lean();
     if (!sessions.length) return res.json([]);
     
@@ -1173,6 +1194,7 @@ const getExamHistory = asyncHandler(async (req, res) => {
         };
     });
 
+    historyCache.set(cacheKey, sessionsWithStats, 60);
     res.json(sessionsWithStats);
 });
 
@@ -1215,6 +1237,10 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
         }
     }
 
+    const cacheKey = `attempts_${session._id}`;
+    const cached = attemptsCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     const attempts = await ExamAttempt.find({ session: session._id })
         .select('-answerHistory -choiceOrder -questionOrder')
         .populate('student', 'firstName lastName email studentId')
@@ -1230,10 +1256,12 @@ const getSessionAttempts = asyncHandler(async (req, res) => {
         resultsByAttempt.get(key).push(result);
     });
 
-    res.json(attempts.map(attempt => ({
+    const responsePayload = attempts.map(attempt => ({
         ...attempt,
         gradingResults: resultsByAttempt.get(attempt._id.toString()) || [],
-    })));
+    }));
+    attemptsCache.set(cacheKey, responsePayload, session.status === 'ended' ? 60 : 8);
+    res.json(responsePayload);
 });
 
 // @desc    Get my attempt status (polling)
@@ -1425,6 +1453,7 @@ const logCheatEventBatch = asyncHandler(async (req, res) => {
         suspendStatus,
     });
 
+    cheatLogCache.del('cheat_logs_' + session._id);
     res.status(201).json({ inserted: docs.length, suspendStatus });
 });
 

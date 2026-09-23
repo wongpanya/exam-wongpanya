@@ -4,6 +4,7 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
 const ExamAttempt = require('../models/examAttemptModel');
 const jwt = require('jsonwebtoken');
+const { historyCache } = require('../utils/cache');
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -216,20 +217,27 @@ const exportStudentsCsv = asyncHandler(async (req, res) => {
 // @route   GET /api/users/me/history
 // @access  Private
 const getStudentHistory = asyncHandler(async (req, res) => {
+    const cacheKey = `student_history_${req.user._id}`;
+    const cached = historyCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     const attempts = await ExamAttempt.find({ student: req.user._id })
         .select('-answers -answerHistory -choiceOrder -questionOrder -aiScore -teacherScore -objectiveScore')
         .populate('exam', 'title durationMin')
         .populate('session', 'status startedAt endedAt')
         .sort({ createdAt: -1 });
         
-    res.json(attempts.map((attempt) => {
+    const responsePayload = attempts.map((attempt) => {
         const safeAttempt = attempt.toObject();
         if (['pending', 'processing', 'needs-review', 'failed'].includes(attempt.gradingStatus)) {
             safeAttempt.score = null;
             safeAttempt.finalScore = null;
         }
         return safeAttempt;
-    }));
+    });
+
+    historyCache.set(cacheKey, responsePayload, 60);
+    res.json(responsePayload);
 });
 
 // @desc    Update user profile (teacher can edit any student)
