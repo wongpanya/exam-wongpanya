@@ -18,10 +18,9 @@ const connectOptions = {
     // Force IPv4: broken/absent IPv6 routes make every new connection stall
     // for seconds before falling back. Zero cost when IPv6 already works.
     family: 4,
-    // Compress the driver<->Atlas wire: measured link moves ~4KB/s, so every
-    // byte fetched costs ~0.25s. zlib (built into the Node driver, supported
-    // by Atlas on all tiers) shrinks JSON-ish docs ~5-10x.
-    compressors: ['zlib'],
+    // NOTE: wire compression (compressors: ['zlib']) was tried and reverted:
+    // the deploy carrying it never became healthy on App Platform, so the
+    // previous build kept serving. Do not re-add without console access.
 };
 
 const isSrvDnsError = (error) => {
